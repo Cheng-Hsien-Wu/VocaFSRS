@@ -123,7 +123,7 @@ test.afterAll(async () => {
 });
 
 test.describe('Mistakes Export E2E Tests', () => {
-  test('Mistakes, Confusions, Exports, Backups & iPhone Viewport Layouts', async () => {
+  test('Mistakes, exports, and iPhone viewport layouts', async () => {
     test.setTimeout(90000);
 
     // Launch with permissions for clipboard access
@@ -182,33 +182,7 @@ test.describe('Mistakes Export E2E Tests', () => {
     await expect(page.locator('text=preclude').first()).toBeVisible(); // Preclude has lapses=2
     await page.locator('#filter-mistake-lapses').uncheck(); // cleanup
 
-    // 4. Switch to Confusion Analysis tab
-    await page.locator('#tab-btn-confusions').click();
-    await page.waitForTimeout(300);
-
-    // Verify high-frequency confusion list
-    await expect(page.locator('text=preclude').first()).toBeVisible();
-    await expect(page.locator('text=precedent').first()).toBeVisible();
-    await expect(page.locator('text=混淆 5 次')).toBeVisible();
-    
-    // Check that 'unknown' ("不知道") confusion is NOT listed
-    const countText = await page.locator('text=高頻混淆組合').textContent();
-    expect(countText).toContain('2 對');
-
-    // Expand a confusion pair
-    await page.locator('#btn-confusion-pair-0').click();
-    await expect(page.locator('text=正確單字: preclude')).toBeVisible();
-    await expect(page.locator('text=被認錯成的單字: precedent')).toBeVisible();
-    await expect(page.locator('text=這是一個排除任何歧義的長例句。')).toBeVisible();
-    await expect(page.locator('text=在做出最終決定之前，我們必須審查法律先例。')).toBeVisible();
-
-    // Sort order toggles
-    await page.locator('#btn-order-confusion-activity').click();
-    await page.waitForTimeout(300);
-    await page.locator('#btn-order-confusion-count').click();
-    await page.waitForTimeout(300);
-
-    // 5. Export Modal flow
+    // 4. Export Modal flow
     await page.locator('#btn-trigger-export').click();
     await page.waitForTimeout(500);
 
@@ -244,7 +218,7 @@ test.describe('Mistakes Export E2E Tests', () => {
     // Close Modal
     await page.locator('button[aria-label="關閉"]').click();
 
-    // 6. Backup/restore and admin UI are intentionally not part of the app.
+    // 5. Backup/restore and admin UI are intentionally not part of the app.
     await expect(page.locator('#tab-btn-maintenance')).toHaveCount(0);
     await expect(page.locator('#tab-btn-admin')).toHaveCount(0);
 

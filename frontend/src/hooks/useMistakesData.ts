@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../services/api';
 
-export type MistakesTab = 'mistakes' | 'confusions';
-
 export interface MistakeItem {
   english: string;
   chinese_meaning: string;
@@ -19,22 +17,7 @@ export interface MistakeItem {
   last_review_time?: string | null;
 }
 
-interface ConfusionCard {
-  english: string;
-  chinese_meaning: string;
-  part_of_speech?: string | null;
-  example_sentence?: string | null;
-  example_translation?: string | null;
-}
-
-export interface ConfusionItem {
-  target_card: ConfusionCard;
-  confused_card: ConfusionCard;
-  occurrence_count: number;
-  last_occurred_at?: string | null;
-}
-
-export function useMistakesList(activeTab: MistakesTab) {
+export function useMistakesList() {
   const [mistakes, setMistakes] = useState<MistakeItem[]>([]);
   const [totalMistakes, setTotalMistakes] = useState(0);
   const [mistakesPage, setMistakesPage] = useState(1);
@@ -71,10 +54,8 @@ export function useMistakesList(activeTab: MistakesTab) {
   }, [days, ratingFilter, repeatedLapses]);
 
   useEffect(() => {
-    if (activeTab === 'mistakes') {
-      void Promise.resolve().then(() => loadMistakes(true));
-    }
-  }, [activeTab, loadMistakes]);
+    void Promise.resolve().then(() => loadMistakes(true));
+  }, [loadMistakes]);
 
   return {
     mistakes,
@@ -90,55 +71,5 @@ export function useMistakesList(activeTab: MistakesTab) {
     setExpandedMistakeWord,
     isLoadingMistakes,
     loadMistakes,
-  };
-}
-
-export function useConfusionsList(activeTab: MistakesTab) {
-  const [confusions, setConfusions] = useState<ConfusionItem[]>([]);
-  const [totalConfusions, setTotalConfusions] = useState(0);
-  const [confusionsPage, setConfusionsPage] = useState(1);
-  const [orderBy, setOrderBy] = useState<'count' | 'activity'>('count');
-  const [expandedConfusionIdx, setExpandedConfusionIdx] = useState<number | null>(null);
-  const [isLoadingConfusions, setIsLoadingConfusions] = useState(false);
-
-  const loadConfusions = useCallback(async (reset = false, pageOverride?: number) => {
-    setIsLoadingConfusions(true);
-    const targetPage = pageOverride ?? 1;
-    try {
-      const data = await api.getConfusions({
-        orderBy,
-        page: targetPage,
-        limit: 15,
-      });
-      if (reset) {
-        setConfusions(data.items);
-      } else {
-        setConfusions((prev) => [...prev, ...data.items]);
-      }
-      setConfusionsPage(targetPage);
-      setTotalConfusions(data.total);
-    } catch (err) {
-      console.error('Failed to load confusions:', err);
-    } finally {
-      setIsLoadingConfusions(false);
-    }
-  }, [orderBy]);
-
-  useEffect(() => {
-    if (activeTab === 'confusions') {
-      void Promise.resolve().then(() => loadConfusions(true));
-    }
-  }, [activeTab, loadConfusions]);
-
-  return {
-    confusions,
-    totalConfusions,
-    confusionsPage,
-    orderBy,
-    setOrderBy,
-    expandedConfusionIdx,
-    setExpandedConfusionIdx,
-    isLoadingConfusions,
-    loadConfusions,
   };
 }

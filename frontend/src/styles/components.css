@@ -548,12 +548,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.inline-separator-icon {
-  color: var(--text-tertiary);
-  font-size: 18px;
-  line-height: 1;
-}
-
 .btn-inline-icon {
   --material-symbol-size: 20px;
   margin-left: var(--space-2);
