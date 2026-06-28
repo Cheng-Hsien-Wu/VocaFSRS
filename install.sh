@@ -58,7 +58,7 @@ detect_lan_ip() {
 current_public_host() {
   local env_file="$1"
   local url
-  [[ -f "$env_file" ]] || return
+  [[ -f "$env_file" ]] || return 0
   url="$(sed -n 's/^APP_PUBLIC_URL=//p' "$env_file" | tail -n 1)"
   url="${url%\"}"
   url="${url#\"}"
@@ -69,7 +69,7 @@ current_public_host() {
 
 current_port() {
   local config_file="$1"
-  [[ -f "$config_file" ]] || return
+  [[ -f "$config_file" ]] || return 0
   sed -n 's/^PORT=//p' "$config_file" | tail -n 1
 }
 
