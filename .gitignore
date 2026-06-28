@@ -1,0 +1,67 @@
+# Local secrets
+.agents/
+.codex/
+.git/
+skills-lock.json
+.env
+.env.*
+!.env.example
+admin_pin.txt
+.vocafsrs.conf
+
+# Private vocabulary lists
+TOEIC-Vocabulary.txt
+TOEIC-*.txt
+*TOEIC*Vocabulary*.txt
+private-data/
+
+# Runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
+backend/data/*.sqlite
+backend/data/*.sqlite-wal
+backend/data/*.sqlite-shm
+backend/data/*.sqlite3
+backend/data/*.sqlite3-wal
+backend/data/*.sqlite3-shm
+backend/data/*.json
+backend/data/*.bak
+backend/data/uploads/*
+!backend/data/.gitkeep
+!backend/data/uploads/.gitkeep
+backend/app/data/uploads/*
+!backend/app/data/uploads/.gitkeep
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+test-results/
+frontend/screenshots/
+frontend/test-results/
+frontend/temp-*-profile/
+playwright-report/
+coverage/
+
+# Logs and local binaries
+*.log
+caddy-bin/

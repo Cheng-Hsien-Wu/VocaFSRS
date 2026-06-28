@@ -1,0 +1,213 @@
+/* ============================================================
+   VocaFSRS — Design Tokens
+   All custom properties consumed by Tailwind v4 @theme
+   ============================================================ */
+
+:root {
+  /* Primitive color scales: 100-300 backgrounds, 400-600 borders, 700-800 fills, 900-1000 text/icons. */
+  --gray-100:  #ffffff;
+  --gray-200:  #faf9f5;
+  --gray-300:  #f5f0e8;
+  --gray-400:  #efe9de;
+  --gray-500:  #d8cec2;
+  --gray-600:  #8b8175;
+  --gray-700:  #706a60;
+  --gray-800:  #5f5850;
+  --gray-900:  #4f4b45;
+  --gray-1000: #24231f;
+
+  --red-100:   #fff0ed;
+  --red-200:   rgba(163, 78, 54, 0.12);
+  --red-400:   #c2523a;
+  --red-700:   #a34e36;
+  --red-800:   #934631;
+  --red-900:   #7f2d1c;
+  --red-1000:  #813d2b;
+
+  --green-100:  #eaf5e5;
+  --green-200:  rgba(63, 127, 82, 0.12);
+  --green-400:  #4f8a5f;
+  --green-700:  #3f7f52;
+  --green-900:  #285437;
+
+  --amber-200:  rgba(154, 106, 4, 0.12);
+  --amber-700:  #9a6a04;
+
+  /* Semantic aliases */
+  --surface-bg:      var(--gray-200);
+  --surface-card:    var(--gray-100);
+  --surface-raised:  var(--gray-300);
+  --surface-overlay: var(--gray-400);
+  --surface-panel:   var(--surface-card);
+  --surface-muted:   var(--surface-raised);
+  --surface-scrim:   rgba(20, 20, 19, 0.40);
+
+  --text-primary:   var(--gray-1000);
+  --text-secondary: var(--gray-900);
+  --text-tertiary:  var(--gray-700);
+  --text-disabled:  var(--gray-700);
+
+  --accent:         var(--red-700);
+  --accent-dim:     var(--red-200);
+  --accent-fg:      var(--gray-100);
+  --accent-hover:   var(--red-800);
+  --accent-active:  var(--red-1000);
+
+  --control-bg:          var(--surface-card);
+  --control-bg-hover:    var(--surface-raised);
+  --control-bg-active:   var(--surface-overlay);
+  --control-border:      var(--border);
+  --control-border-hover: var(--border-strong);
+  --control-text:        var(--text-primary);
+  --control-disabled-bg:   var(--surface-raised);
+  --control-disabled-text: var(--text-disabled);
+  --focus-ring:          var(--accent);
+
+  --panel-bg:            var(--surface-panel);
+  --panel-muted-bg:      var(--surface-muted);
+  --panel-border:        var(--border);
+  --panel-accent-bg:     var(--accent-dim);
+  --panel-accent-border: rgba(163, 78, 54, 0.35);
+
+  --sheet-bg:            var(--surface-panel);
+  --sheet-backdrop:      var(--surface-scrim);
+  --sheet-handle:        var(--border-strong);
+
+  --filter-selected-bg:     var(--accent-dim);
+  --filter-selected-border: var(--accent);
+  --filter-selected-text:   var(--accent);
+  --filter-idle-bg:         transparent;
+  --filter-idle-border:     var(--border);
+  --filter-idle-text:       var(--text-secondary);
+
+  --placement-known-bg:           light-dark(#f4f6f0, #232a1d);
+  --placement-known-bg-hover:     light-dark(#e9ede0, #2c3625);
+  --placement-known-border:       light-dark(#d1d9c9, #3b4733);
+  --placement-known-border-hover: light-dark(#b9c4af, #4a5940);
+  --placement-known-text:         light-dark(#55663e, #a4b391);
+  --placement-fuzzy-bg:           light-dark(#fdf5f2, #2e1f1a);
+  --placement-fuzzy-bg-hover:     light-dark(#faeae3, #3c2821);
+  --placement-fuzzy-border:       light-dark(#f6d2c4, #4f332a);
+  --placement-fuzzy-border-hover: light-dark(#f1bfae, #644035);
+  --placement-fuzzy-text:         light-dark(#b75637, #e9967a);
+
+  --success:        var(--green-700);
+  --success-dim:    var(--green-200);
+  --success-border: var(--green-400);
+  --success-fg:     var(--gray-100);
+  --info:           var(--gray-900);
+  --info-dim:       var(--gray-300);
+  --warning:        var(--amber-700);
+  --warning-dim:    var(--amber-200);
+  --error:          var(--red-700);
+  --error-dim:      var(--red-200);
+  --error-fg:       var(--gray-100);
+
+  --badge-neutral-bg:     var(--surface-raised);
+  --badge-neutral-border: var(--border);
+  --badge-neutral-text:   var(--text-secondary);
+  --badge-success-bg:     var(--success-dim);
+  --badge-success-border: var(--success-border);
+  --badge-success-text:   var(--success);
+  --badge-warning-bg:     var(--warning-dim);
+  --badge-warning-border: var(--warning);
+  --badge-warning-text:   var(--warning);
+  --badge-danger-bg:      var(--error-dim);
+  --badge-danger-border:  var(--error);
+  --badge-danger-text:    var(--error);
+
+  /* Study result states */
+  --option-correct-bg:     var(--green-100);
+  --option-correct-border: var(--green-400);
+  --option-correct-text:   var(--green-900);
+  --option-wrong-bg:       var(--red-100);
+  --option-wrong-border:   var(--red-400);
+  --option-wrong-text:     var(--red-900);
+  --option-muted-bg:       var(--surface-bg);
+  --option-muted-text:     var(--gray-800);
+
+  /* Borders */
+  --border:         var(--gray-500);
+  --border-strong:  var(--gray-600);
+
+  /* Radii: compact study-app scale, inspired by Geist restraint without copying its full visual language. */
+  --radius-sm:   6px;   /* controls */
+  --radius-md:   8px;   /* cards */
+  --radius-lg:   12px;  /* sheets and dialogs */
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(61, 61, 58, 0.03);
+  --shadow-md: 0 2px 8px rgba(61, 61, 58, 0.04);
+  --shadow-lg: 0 8px 24px rgba(61, 61, 58, 0.06);
+
+  /* Spacing */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Typography */
+  --font-system: 'SF Pro Display', 'Geist Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-display: Georgia, 'Times New Roman', serif;
+  --text-xxs:  11px;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   22px;
+  --text-xl:   28px;
+  --text-2xl:  36px;
+
+  /* Motion */
+  --duration-fast:  120ms;
+  --duration-base:  200ms;
+  --duration-slow:  300ms;
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+  --gray-100:  #1f1e1b;
+  --gray-200:  #181715;
+  --gray-300:  #252320;
+  --gray-400:  #353330;
+  --gray-500:  #403b35;
+  --gray-600:  #746b60;
+  --gray-700:  #aaa49a;
+  --gray-800:  #c2bbb1;
+  --gray-900:  #d0cbc2;
+  --gray-1000: #faf9f5;
+
+  --red-100:   #3a201b;
+  --red-200:   rgba(224, 138, 104, 0.16);
+  --red-400:   #e58b78;
+  --red-700:   #e48b78;
+  --red-800:   #f09a77;
+  --red-900:   #ffe3dc;
+  --red-1000:  #f5aa8b;
+
+  --green-100: #25351f;
+  --green-400: #91bf78;
+  --green-700: #90bd7b;
+  --green-900: #e7f4df;
+
+  --amber-700: #e6bc55;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.3);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+}
