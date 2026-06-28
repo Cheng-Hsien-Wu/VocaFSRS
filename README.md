@@ -66,7 +66,9 @@ The interactive installer:
 - optionally imports a vocabulary file
 - optionally configures Discord review reminders
 
-The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an LLM API key. Local settings and credentials are stored in `backend/.env`; restart the server after changing that file.
+The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an LLM API key. Local settings and credentials are stored in `backend/.env`; do not share that file. Restart the server after changing it.
+
+Discord reminders are sent only while the VocaFSRS server is running.
 
 ## Start the server
 
@@ -78,11 +80,15 @@ Windows PowerShell:
 .\start.ps1
 ```
 
+If the execution policy blocks the script, use `powershell -ExecutionPolicy Bypass -File .\start.ps1`.
+
 Linux, macOS, or WSL:
 
 ```bash
 ./start.sh
 ```
+
+For an archive download without executable permissions, use `bash start.sh`.
 
 The terminal displays the server address. Keep that terminal open and press `Ctrl+C` to stop VocaFSRS.
 
@@ -158,7 +164,7 @@ a board member,董事會成員
 
 See [sample-vocabulary.txt](docs/sample-vocabulary.txt) and [sample-vocabulary.csv](docs/sample-vocabulary.csv) for importable templates.
 
-CSV imports can also include `part_of_speech`, `sense_hint`, `example_sentence`, and `example_translation`. These optional fields help distinguish multiple meanings of the same English term.
+CSV imports can also include `part_of_speech`, `sense_hint`, `example_sentence`, and `example_translation`. When the same English term and part of speech have different meanings, `sense_hint` distinguishes them; unresolved ambiguous entries are excluded from study.
 
 ## Study workflow
 
@@ -172,6 +178,8 @@ Triage classifies the entire imported list:
 
 Complete triage before starting formal review. You can stop and resume without losing the current progress.
 
+After each 100 triage answers, VocaFSRS checks a sample of terms marked **Known**. Complete this checkpoint before continuing. Formal review unlocks only after the full imported list and its checkpoints are complete.
+
 ### FSRS review
 
 Formal review uses typed answers instead of multiple-choice options. At the end of the session, VocaFSRS sends the answers for one batch grading request.
@@ -184,9 +192,9 @@ Each answer receives one of three ratings:
 
 FSRS combines the rating with the term's review history to calculate its next due time.
 
-The mistakes page can export the current session's difficult terms for later review or listening practice.
+The mistakes page can export recent `Again` and `Hard` terms for a NotebookLM podcast or other listening practice.
 
-Without an LLM API key, vocabulary import and triage still work. Graded review sessions cannot finish until a key is configured.
+Without an LLM API key, vocabulary import and triage still work. Do not start formal review until a key is configured: answers can be submitted, but grading will fail and another review round remains blocked until the failed grading is resolved.
 
 ## Maintain the installation
 

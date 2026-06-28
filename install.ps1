@@ -43,14 +43,37 @@ function Get-ExistingSetting {
 }
 
 function Get-LanAddress {
-    $Address = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.IPAddress -ne "127.0.0.1" -and
-            $_.IPAddress -notlike "169.254*"
-        } |
-        Select-Object -First 1 -ExpandProperty IPAddress
+    $Route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+        Sort-Object RouteMetric |
+        Select-Object -First 1
+    $Address = if ($Route) {
+        Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $Route.InterfaceIndex -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notlike "169.254*" } |
+            Select-Object -First 1 -ExpandProperty IPAddress
+    }
     if ($Address) { return $Address }
     return "127.0.0.1"
+}
+
+function Set-DotEnvValue {
+    param([string]$Path, [string]$Name, [string]$Value)
+    $Prefix = "$Name="
+    $Found = $false
+    $Lines = foreach ($Line in Get-Content $Path) {
+        if ($Line.StartsWith($Prefix)) {
+            if (-not $Found) {
+                "$Prefix$Value"
+                $Found = $true
+            }
+        }
+        else {
+            $Line
+        }
+    }
+    if (-not $Found) {
+        $Lines += "$Prefix$Value"
+    }
+    [IO.File]::WriteAllLines($Path, $Lines, [Text.UTF8Encoding]::new($false))
 }
 
 function Invoke-Checked {
@@ -125,23 +148,15 @@ if ($ReplaceEnv) {
         "APP_PUBLIC_URL=$(ConvertTo-DotEnvValue $PublicUrl)"
         "NOTIFICATION_POLL_SECONDS=60"
     )
-    [IO.File]::WriteAllLines($EnvFile, $EnvLines, [Text.UTF8Encoding]::new($false))
 }
 else {
     Write-Host "Keeping the existing backend configuration."
 }
 
-[IO.File]::WriteAllLines(
-    $RuntimeConfig,
-    @("HOST=0.0.0.0", "PORT=$Port"),
-    [Text.UTF8Encoding]::new($false)
-)
-
 Write-Host "`nInstalling backend dependencies"
 Push-Location $BackendDir
 try {
     Invoke-Checked { & uv sync --no-dev }
-    Invoke-Checked { & uv run alembic upgrade head }
 }
 finally {
     Pop-Location
@@ -157,18 +172,74 @@ finally {
     Pop-Location
 }
 
-$DatasetPath = Read-Host "Dataset path to import now (.txt/.csv, blank to import later)"
-if (-not [string]::IsNullOrWhiteSpace($DatasetPath)) {
-    $ResolvedDataset = (Resolve-Path $DatasetPath.Trim()).Path
-    Write-Host "`nImporting vocabulary"
+$EnvExisted = Test-Path $EnvFile
+$ConfigExisted = Test-Path $RuntimeConfig
+$EnvBackup = if ($EnvExisted) { [IO.File]::ReadAllBytes($EnvFile) } else { $null }
+$ConfigBackup = if ($ConfigExisted) { [IO.File]::ReadAllBytes($RuntimeConfig) } else { $null }
+
+try {
+    if ($ReplaceEnv) {
+        [IO.File]::WriteAllLines($EnvFile, $EnvLines, [Text.UTF8Encoding]::new($false))
+    }
+    else {
+        Set-DotEnvValue $EnvFile "ALLOWED_ORIGINS" (ConvertTo-DotEnvValue $PublicUrl)
+        Set-DotEnvValue $EnvFile "OPENROUTER_SITE_URL" (ConvertTo-DotEnvValue $PublicUrl)
+        Set-DotEnvValue $EnvFile "APP_PUBLIC_URL" (ConvertTo-DotEnvValue $PublicUrl)
+    }
+    [IO.File]::WriteAllLines(
+        $RuntimeConfig,
+        @("HOST=0.0.0.0", "PORT=$Port"),
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    Write-Host "`nUpdating the database"
     Push-Location $BackendDir
     try {
-        $env:PYTHONPATH = "."
-        Invoke-Checked { & uv run python scripts/import_vocabulary.py $ResolvedDataset }
+        Invoke-Checked { & uv run alembic upgrade head }
     }
     finally {
-        Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
         Pop-Location
+    }
+}
+catch {
+    if ($EnvExisted) {
+        [IO.File]::WriteAllBytes($EnvFile, $EnvBackup)
+    }
+    else {
+        Remove-Item $EnvFile -ErrorAction SilentlyContinue
+    }
+    if ($ConfigExisted) {
+        [IO.File]::WriteAllBytes($RuntimeConfig, $ConfigBackup)
+    }
+    else {
+        Remove-Item $RuntimeConfig -ErrorAction SilentlyContinue
+    }
+    throw "Installation failed; previous configuration was restored. $($_.Exception.Message)"
+}
+
+while ($true) {
+    $DatasetPath = Read-Host "Dataset path to import now (.txt/.csv, blank to import later)"
+    if ([string]::IsNullOrWhiteSpace($DatasetPath)) { break }
+
+    try {
+        $ResolvedDataset = (Resolve-Path $DatasetPath.Trim()).Path
+        Write-Host "`nImporting vocabulary"
+        Push-Location $BackendDir
+        try {
+            $env:PYTHONPATH = "."
+            Invoke-Checked { & uv run python scripts/import_vocabulary.py $ResolvedDataset }
+        }
+        finally {
+            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+            Pop-Location
+        }
+        break
+    }
+    catch {
+        Write-Warning $_.Exception.Message
+        if ((Read-Default "Import failed. Try another file? (Y/n)" "Y") -match "^[Nn]$") {
+            break
+        }
     }
 }
 

@@ -9,6 +9,7 @@
     "check:css": "node scripts/check-css-selectors.mjs",
     "lint": "eslint .",
     "test:e2e": "playwright test",
+    "test:release": "playwright test --config=playwright.release.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

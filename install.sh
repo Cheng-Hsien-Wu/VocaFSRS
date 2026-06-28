@@ -46,13 +46,46 @@ require_command() {
 
 detect_lan_ip() {
   local detected=""
-  if command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
+    detected="$(
+      powershell.exe -NoProfile -Command \
+        '$route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object RouteMetric | Select-Object -First 1; if ($route) { Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex | Where-Object { $_.IPAddress -notlike "169.254*" } | Select-Object -First 1 -ExpandProperty IPAddress }' \
+        2>/dev/null | tr -d '\r' | head -n 1
+    )"
+  elif command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
     detected="$(hostname -I 2>/dev/null | awk '{print $1}')"
   elif command -v ipconfig >/dev/null 2>&1; then
-    detected="$(ipconfig getifaddr en0 2>/dev/null || true)"
-    [[ -n "$detected" ]] || detected="$(ipconfig getifaddr en1 2>/dev/null || true)"
+    local interface=""
+    if command -v route >/dev/null 2>&1; then
+      interface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+    fi
+    if [[ -n "$interface" ]]; then
+      detected="$(ipconfig getifaddr "$interface" 2>/dev/null || true)"
+    fi
+    [[ -n "$detected" ]] || detected="$(ipconfig getifaddr en0 2>/dev/null || true)"
   fi
   printf '%s' "${detected:-127.0.0.1}"
+}
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local temp_file
+  temp_file="$(mktemp)"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found = 0 }
+    index($0, key "=") == 1 {
+      if (!found) print key "=" value
+      found = 1
+      next
+    }
+    { print }
+    END {
+      if (!found) print key "=" value
+    }
+  ' "$file" >"$temp_file"
+  mv "$temp_file" "$file"
 }
 
 current_public_host() {
@@ -91,7 +124,7 @@ env_file="$ROOT_DIR/backend/.env"
 runtime_config="$ROOT_DIR/.vocafsrs.conf"
 default_ip="$(current_public_host "$env_file")"
 default_port="$(current_port "$runtime_config")"
-lan_ip="$(prompt "IP or hostname used by your phone" "${default_ip:-$(detect_lan_ip)}")"
+lan_ip="$(prompt "IP or hostname used by another device" "${default_ip:-$(detect_lan_ip)}")"
 port="$(prompt "Web port" "${default_port:-8080}")"
 if [[ ! "$port" =~ ^[0-9]+$ ]] || ((port < 1 || port > 65535)); then
   echo "Port must be a number from 1 to 65535." >&2
@@ -117,7 +150,7 @@ if [[ "$replace_env" == "yes" ]]; then
   fi
   discord_webhook="$(prompt_secret "Discord webhook URL for due-review reminders")"
 
-  cat >"$env_file" <<EOF
+  env_contents="$(cat <<EOF
 VOCAB_ENV=production
 DATABASE_URL=
 DATABASE_PATH=data/vocab.db
@@ -134,26 +167,74 @@ DISCORD_WEBHOOK_URL=$(env_value "$discord_webhook")
 APP_PUBLIC_URL=$(env_value "$public_url")
 NOTIFICATION_POLL_SECONDS=60
 EOF
-  chmod 600 "$env_file"
+)"
 fi
 
-cat >"$ROOT_DIR/.vocafsrs.conf" <<EOF
-HOST=0.0.0.0
-PORT=$port
-EOF
-
 say "Installing backend dependencies"
-(cd "$ROOT_DIR/backend" && uv sync --no-dev && uv run alembic upgrade head)
+(cd "$ROOT_DIR/backend" && uv sync --no-dev)
 
 say "Installing and building the frontend"
 (cd "$ROOT_DIR/frontend" && npm ci && npm run build)
 
-dataset_path="$(prompt "Dataset path to import now (.txt/.csv, blank to import later in the app)" "")"
-if [[ -n "$dataset_path" ]]; then
+backup_dir="$(mktemp -d)"
+env_existed="no"
+config_existed="no"
+if [[ -f "$env_file" ]]; then
+  cp "$env_file" "$backup_dir/backend.env"
+  env_existed="yes"
+fi
+if [[ -f "$runtime_config" ]]; then
+  cp "$runtime_config" "$backup_dir/runtime.conf"
+  config_existed="yes"
+fi
+
+restore_config() {
+  if [[ "$env_existed" == "yes" ]]; then
+    cp "$backup_dir/backend.env" "$env_file"
+  else
+    rm -f "$env_file"
+  fi
+  if [[ "$config_existed" == "yes" ]]; then
+    cp "$backup_dir/runtime.conf" "$runtime_config"
+  else
+    rm -f "$runtime_config"
+  fi
+  rm -rf "$backup_dir"
+  printf '%s\n' "Installation failed; previous configuration was restored." >&2
+}
+trap restore_config ERR
+
+if [[ "$replace_env" == "yes" ]]; then
+  printf '%s\n' "$env_contents" >"$env_file"
+else
+  set_env_value "$env_file" "ALLOWED_ORIGINS" "$(env_value "$public_url")"
+  set_env_value "$env_file" "OPENROUTER_SITE_URL" "$(env_value "$public_url")"
+  set_env_value "$env_file" "APP_PUBLIC_URL" "$(env_value "$public_url")"
+fi
+chmod 600 "$env_file"
+
+cat >"$runtime_config" <<EOF
+HOST=0.0.0.0
+PORT=$port
+EOF
+
+say "Updating the database"
+(cd "$ROOT_DIR/backend" && uv run alembic upgrade head)
+
+trap - ERR
+rm -rf "$backup_dir"
+
+while true; do
+  dataset_path="$(prompt "Dataset path to import now (.txt/.csv, blank to import later in the app)" "")"
+  [[ -n "$dataset_path" ]] || break
   dataset_path="${dataset_path/#\~/$HOME}"
   say "Importing vocabulary"
-  (cd "$ROOT_DIR/backend" && PYTHONPATH=. uv run python scripts/import_vocabulary.py "$dataset_path")
-fi
+  if (cd "$ROOT_DIR/backend" && PYTHONPATH=. uv run python scripts/import_vocabulary.py "$dataset_path"); then
+    break
+  fi
+  retry_import="$(prompt "Import failed. Try another file? (Y/n)" "Y")"
+  [[ ! "$retry_import" =~ ^[Nn]$ ]] || break
+done
 
 say "Installation complete"
 printf 'Open: %s\n' "$public_url"
@@ -163,5 +244,5 @@ printf '%s\n' "Dataset files may stay anywhere; imported vocabulary is stored in
 
 start_now="$(prompt "Start VocaFSRS now? (Y/n)" "Y")"
 if [[ ! "$start_now" =~ ^[Nn]$ ]]; then
-  exec "$ROOT_DIR/start.sh"
+  exec bash "$ROOT_DIR/start.sh"
 fi

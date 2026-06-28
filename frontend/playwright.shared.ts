@@ -7,6 +7,7 @@ export function createPlaywrightConfig(apiPort: number, frontendPort: number) {
 
   return defineConfig({
     testDir: './tests',
+    testIgnore: 'release_topology.spec.ts',
     fullyParallel: false,
     forbidOnly: true,
     retries: 0,

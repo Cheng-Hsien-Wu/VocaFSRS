@@ -21,6 +21,21 @@ if ($Port -lt 1 -or $Port -gt 65535) {
     throw "Invalid PORT in .vocafsrs.conf: $Port"
 }
 
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    throw "uv is not installed. Run the installer first."
+}
+if (-not (Test-Path $EnvFile)) {
+    throw "backend/.env is missing. Run the installer first."
+}
+if (-not (Test-Path (Join-Path $RootDir "frontend\dist\index.html"))) {
+    throw "The frontend build is missing. Run the installer first."
+}
+$Listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if ($Listener) {
+    throw "Port $Port is already in use. Stop the other service or rerun the installer with another port."
+}
+
 $PublicUrl = $null
 if (Test-Path $EnvFile) {
     $UrlLine = Get-Content $EnvFile |
