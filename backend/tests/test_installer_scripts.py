@@ -27,10 +27,11 @@ def _installer_workspace(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         'if [[ "$1" == "-p" ]]; then printf "22.12.0\\n"; else printf "v22.12.0\\n"; fi',
     )
     _fake_command(fake_bin / "npm")
-    _fake_command(fake_bin / "uv")
+    _fake_command(fake_bin / "uv", 'printf "%s\\n" "$*" >> "${FAKE_UV_LOG:?}"')
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["FAKE_UV_LOG"] = str(tmp_path / "uv.log")
     env.pop("WSL_DISTRO_NAME", None)
     return workspace, env
 
@@ -91,3 +92,19 @@ def test_bash_installer_keeps_secrets_but_updates_public_url(tmp_path: Path):
     assert 'APP_PUBLIC_URL="http://192.0.2.20:9090"' in content
     assert 'ALLOWED_ORIGINS="http://192.0.2.20:9090"' in content
     assert (workspace / ".vocafsrs.conf").read_text(encoding="utf-8") == "HOST=0.0.0.0\nPORT=9090\n"
+
+
+def test_bash_installer_resolves_dataset_from_invocation_directory(tmp_path: Path):
+    workspace, env = _installer_workspace(tmp_path)
+    dataset = workspace / "my-vocabulary.txt"
+    dataset.write_text("allocate,分配\n", encoding="utf-8")
+
+    result = _run_installer(
+        workspace,
+        env,
+        ["127.0.0.1", "8080", "Asia/Taipei", "", "", "", dataset.name, "n"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    uv_calls = Path(env["FAKE_UV_LOG"]).read_text(encoding="utf-8")
+    assert f"scripts/import_vocabulary.py {dataset}" in uv_calls

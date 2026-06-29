@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+INVOCATION_DIR="$PWD"
 
 say() {
   printf '\n%s\n' "$1"
@@ -225,9 +226,12 @@ trap - ERR
 rm -rf "$backup_dir"
 
 while true; do
-  dataset_path="$(prompt "Dataset path to import now (.txt/.csv, blank to import later in the app)" "")"
+  dataset_path="$(prompt "Dataset path to import now (.txt/.csv, absolute or relative to the current directory; blank to import later)" "")"
   [[ -n "$dataset_path" ]] || break
   dataset_path="${dataset_path/#\~/$HOME}"
+  if [[ "$dataset_path" != /* ]]; then
+    dataset_path="$INVOCATION_DIR/$dataset_path"
+  fi
   say "Importing vocabulary"
   if (cd "$ROOT_DIR/backend" && PYTHONPATH=. uv run python scripts/import_vocabulary.py "$dataset_path"); then
     break

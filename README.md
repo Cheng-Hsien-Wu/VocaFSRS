@@ -66,6 +66,8 @@ The interactive installer:
 - optionally imports a vocabulary file
 - optionally configures Discord review reminders
 
+At the vocabulary import prompt, enter either an absolute path or a path relative to the directory where you started the installer. For example, if `my-vocabulary.txt` is in the repository directory, enter `my-vocabulary.txt`. The file does not need to be placed in `backend/`. VocaFSRS reads the source file without moving it and stores the imported vocabulary in `backend/data/vocab.db`.
+
 The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an LLM API key. Local settings and credentials are stored in `backend/.env`; do not share that file. Restart the server after changing it.
 
 Discord reminders are sent only while the VocaFSRS server is running.

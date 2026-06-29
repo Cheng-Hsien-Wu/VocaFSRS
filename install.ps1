@@ -218,7 +218,7 @@ catch {
 }
 
 while ($true) {
-    $DatasetPath = Read-Host "Dataset path to import now (.txt/.csv, blank to import later)"
+    $DatasetPath = Read-Host "Dataset path to import now (.txt/.csv, absolute or relative to the current directory; blank to import later)"
     if ([string]::IsNullOrWhiteSpace($DatasetPath)) { break }
 
     try {
