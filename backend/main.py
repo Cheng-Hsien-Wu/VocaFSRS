@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.constants import APP_NAME
 from app.database import AsyncSessionLocal
-from app.routers import placement, import_csv, study, review_data, maintenance
+from app.routers import placement, import_csv, study, review_data, maintenance, llm_settings
 from app.services.notifications import notification_worker_loop, notifications_configured
 
 
@@ -51,6 +51,7 @@ app.include_router(import_csv.router)
 app.include_router(study.router)
 app.include_router(review_data.router)
 app.include_router(maintenance.router)
+app.include_router(llm_settings.router)
 
 
 @app.get("/api/v1/health")

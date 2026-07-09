@@ -8,9 +8,13 @@ from typing import Any
 
 from app.config import settings
 from app.constants import APP_NAME
+from app.services.llm_settings import (
+    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL,
+    LlmRuntimeConfig,
+)
 
 DEFAULT_LLM_MODEL = settings.llm_model
-DEFAULT_OPENROUTER_MODEL = "openrouter/owl-alpha"
 
 
 @dataclass
@@ -112,19 +116,41 @@ def _normalize(payload: dict[str, Any], provider: str, model: str) -> Adjudicati
     )
 
 
+def _format_http_error(exc: urllib.error.HTTPError) -> str:
+    raw = exc.read().decode("utf-8", errors="replace")
+    body = raw.strip()
+    if len(body) > 700:
+        body = body[:700] + "..."
+    return f"HTTP {exc.code} {exc.reason}: {body or 'empty response body'}"
+
+
 def _post_json(url: str, headers: dict[str, str], body: dict[str, Any], timeout: int) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise AdjudicationUnavailable(_format_http_error(exc)) from exc
 
 
-def _openrouter_model() -> str:
-    return os.getenv("OPENROUTER_MODEL", settings.openrouter_model or DEFAULT_OPENROUTER_MODEL)
+def _default_runtime_config() -> LlmRuntimeConfig:
+    provider = os.getenv("LLM_PROVIDER", "auto").strip() or "auto"
+    return LlmRuntimeConfig(
+        provider=provider,
+        model=None,
+        base_url=os.getenv("OPENAI_COMPATIBLE_BASE_URL") or None,
+        api_key=None,
+        timeout_seconds=int(os.getenv("LLM_TIMEOUT_SECONDS", str(settings.llm_timeout_seconds))),
+    )
 
 
-def _openrouter_headers() -> dict[str, str]:
-    api_key = os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
+def _openrouter_model(runtime_config: LlmRuntimeConfig) -> str:
+    return runtime_config.model or os.getenv("OPENROUTER_MODEL", settings.openrouter_model or DEFAULT_OPENROUTER_MODEL)
+
+
+def _openrouter_headers(runtime_config: LlmRuntimeConfig) -> dict[str, str]:
+    api_key = runtime_config.api_key or os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
     return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -133,9 +159,9 @@ def _openrouter_headers() -> dict[str, str]:
     }
 
 
-def _call_google_batch(prompt: str, timeout: int) -> tuple[list[dict[str, Any]], str, str]:
-    api_key = os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
-    model = os.getenv("LLM_MODEL", settings.llm_model)
+def _call_google_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = runtime_config.api_key or os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
+    model = runtime_config.model or os.getenv("LLM_MODEL", settings.llm_model)
     if not api_key:
         raise AdjudicationUnavailable("GOOGLE_API_KEY is not configured")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -159,14 +185,14 @@ def _call_google_batch(prompt: str, timeout: int) -> tuple[list[dict[str, Any]],
     return results, "google", model
 
 
-def _call_openrouter_batch(prompt: str, timeout: int) -> tuple[list[dict[str, Any]], str, str]:
-    api_key = os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
-    model = _openrouter_model()
+def _call_openrouter_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = runtime_config.api_key or os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
+    model = _openrouter_model(runtime_config)
     if not api_key:
         raise AdjudicationUnavailable("OPENROUTER_API_KEY is not configured")
     response = _post_json(
         "https://openrouter.ai/api/v1/chat/completions",
-        _openrouter_headers(),
+        _openrouter_headers(runtime_config),
         {
             "model": model,
             "temperature": 0,
@@ -183,11 +209,60 @@ def _call_openrouter_batch(prompt: str, timeout: int) -> tuple[list[dict[str, An
     return results, "openrouter", model
 
 
-async def adjudicate_answers(items: list[AdjudicationItem]) -> dict[str, AdjudicationResult]:
+def _call_openai_compatible_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = runtime_config.api_key or os.getenv("OPENAI_COMPATIBLE_API_KEY") or os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
+    model = runtime_config.model or os.getenv("OPENAI_COMPATIBLE_MODEL", settings.llm_model)
+    base_url = runtime_config.base_url or os.getenv("OPENAI_COMPATIBLE_BASE_URL") or DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+    if not api_key:
+        raise AdjudicationUnavailable("OpenAI-compatible API key is not configured")
+    if not model:
+        raise AdjudicationUnavailable("OpenAI-compatible model is not configured")
+    url = base_url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url = f"{url}/chat/completions"
+    response = _post_json(
+        url,
+        {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        {
+            "model": model,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout,
+    )
+    text = response["choices"][0]["message"]["content"]
+    payload = _extract_json(text)
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise ValueError("LLM response did not contain results array")
+    return results, "openai_compatible", model
+
+
+def _provider_callers(runtime_config: LlmRuntimeConfig):
+    callers = {
+        "openrouter": _call_openrouter_batch,
+        "gemini": _call_google_batch,
+        "openai_compatible": _call_openai_compatible_batch,
+    }
+    selected = runtime_config.provider
+    if selected in callers:
+        return [callers[selected]]
+    return [_call_openrouter_batch, _call_google_batch, _call_openai_compatible_batch]
+
+
+async def adjudicate_answers(
+    items: list[AdjudicationItem],
+    runtime_config: LlmRuntimeConfig | None = None,
+) -> dict[str, AdjudicationResult]:
     if not items:
         return {}
 
-    timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", str(settings.llm_timeout_seconds)))
+    runtime_config = runtime_config or _default_runtime_config()
+    timeout = runtime_config.timeout_seconds
 
     if _use_mock_adjudication():
         return {item.id: _mock_adjudication_result(item.expected, item.typed) for item in items}
@@ -196,9 +271,9 @@ async def adjudicate_answers(items: list[AdjudicationItem]) -> dict[str, Adjudic
     expected_ids = {item.id for item in items}
     errors: list[str] = []
 
-    for caller in (_call_openrouter_batch, _call_google_batch):
+    for caller in _provider_callers(runtime_config):
         try:
-            raw_results, provider, model = await asyncio.to_thread(caller, prompt, timeout)
+            raw_results, provider, model = await asyncio.to_thread(caller, prompt, timeout, runtime_config)
             normalized: dict[str, AdjudicationResult] = {}
             for raw in raw_results:
                 result_id = str(raw.get("id", "")).strip()
@@ -210,6 +285,6 @@ async def adjudicate_answers(items: list[AdjudicationItem]) -> dict[str, Adjudic
                 raise ValueError(f"LLM response missing result ids: {', '.join(sorted(missing))}")
             return normalized
         except (AdjudicationUnavailable, urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError, json.JSONDecodeError) as exc:
-            errors.append(str(exc))
+            errors.append(f"{caller.__name__}: {exc}")
 
     raise AdjudicationUnavailable("; ".join(errors) or "no LLM providers configured")

@@ -81,6 +81,34 @@ export interface BatchAcceptedResponse {
   conflicts: string[];
 }
 
+export type LlmProvider = 'auto' | 'gemini' | 'openrouter' | 'openai_compatible';
+
+export interface LlmSettingsDto {
+  provider: LlmProvider;
+  model: string | null;
+  base_url: string | null;
+  timeout_seconds: number;
+  api_key_configured: boolean;
+  api_key_source: 'local' | 'environment' | 'none';
+  effective_model: string;
+}
+
+export interface LlmSettingsUpdate {
+  provider: LlmProvider;
+  model?: string | null;
+  base_url?: string | null;
+  api_key?: string | null;
+  clear_api_key?: boolean;
+  timeout_seconds: number;
+}
+
+export interface LlmSettingsTestResponse {
+  ok: boolean;
+  provider?: string | null;
+  model?: string | null;
+  error?: string | null;
+}
+
 function apiError(message: string, status: number, detail: ApiErrorBody['detail']): ApiError {
   const err: ApiError = new Error(message);
   err.status = status;
@@ -100,6 +128,31 @@ export function toPlacementCard(c: PlacementCardDto): PlacementCard {
 }
 
 export const api = {
+  async getLlmSettings(): Promise<LlmSettingsDto> {
+    const res = await fetch('/api/v1/llm-settings');
+    if (!res.ok) throw new Error('Failed to fetch LLM settings');
+    return res.json() as Promise<LlmSettingsDto>;
+  },
+
+  async updateLlmSettings(payload: LlmSettingsUpdate): Promise<LlmSettingsDto> {
+    const res = await fetch('/api/v1/llm-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to save LLM settings' }));
+      throw new Error(err.detail || 'Failed to save LLM settings');
+    }
+    return res.json() as Promise<LlmSettingsDto>;
+  },
+
+  async testLlmSettings(): Promise<LlmSettingsTestResponse> {
+    const res = await fetch('/api/v1/llm-settings/test', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to test LLM settings');
+    return res.json() as Promise<LlmSettingsTestResponse>;
+  },
+
   async createPlacementSession(requestedCount: number): Promise<PlacementSessionDto> {
     const res = await fetch('/api/v1/placement-sessions', {
       method: 'POST',

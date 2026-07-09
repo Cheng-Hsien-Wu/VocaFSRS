@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Any, List, Optional
+from typing import Any, Literal, List, Optional
 from datetime import datetime
 
 from app.constants import (
@@ -85,3 +85,32 @@ class AuditQuestionsResponse(BaseModel):
     status: PlacementAuditStatus
     checkpoint: int
     questions: list[AuditQuestionResponse]
+
+
+LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible"]
+
+
+class LlmSettingsResponse(BaseModel):
+    provider: LlmProvider
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    timeout_seconds: int
+    api_key_configured: bool
+    api_key_source: Literal["local", "environment", "none"]
+    effective_model: str
+
+
+class LlmSettingsUpdate(BaseModel):
+    provider: LlmProvider
+    model: Optional[str] = Field(default=None, max_length=200)
+    base_url: Optional[str] = Field(default=None, max_length=500)
+    api_key: Optional[str] = Field(default=None, max_length=4000)
+    clear_api_key: bool = False
+    timeout_seconds: int = Field(default=45, ge=5, le=180)
+
+
+class LlmSettingsTestResponse(BaseModel):
+    ok: bool
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    error: Optional[str] = None

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db/dexie';
-import { api } from '../services/api';
+import { api, type LlmProvider } from '../services/api';
 import { useHomeStatus } from '../hooks/useHomeStatus';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { buildMainAction, nextDueLabel } from '../services/home-actions';
@@ -25,11 +25,22 @@ const STUDY_OPTIONS = [
   { count: 100, label: '100 題' },
 ];
 
+const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+
 export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
   const navigate = useNavigate();
   const [resetArmed, setResetArmed] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [resetStatus, setResetStatus] = useState<string>('');
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>('auto');
+  const [llmModel, setLlmModel] = useState('');
+  const [llmBaseUrl, setLlmBaseUrl] = useState('');
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmTimeout, setLlmTimeout] = useState(45);
+  const [llmKeyStatus, setLlmKeyStatus] = useState('');
+  const [llmStatus, setLlmStatus] = useState('');
+  const [isSavingLlm, setIsSavingLlm] = useState(false);
+  const [isTestingLlm, setIsTestingLlm] = useState(false);
   const {
     hasResumable,
     resumableProgress,
@@ -49,6 +60,27 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
     }, 8000);
     return () => window.clearTimeout(timeoutId);
   }, [resetArmed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getLlmSettings()
+      .then(settings => {
+        if (cancelled) return;
+        setLlmProvider(settings.provider);
+        setLlmModel(settings.model ?? settings.effective_model ?? '');
+        setLlmBaseUrl(settings.base_url ?? '');
+        setLlmTimeout(settings.timeout_seconds);
+        setLlmKeyStatus(settings.api_key_configured ? `Key: ${settings.api_key_source}` : 'Key: none');
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setLlmStatus('LLM 設定讀取失敗：' + message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function startPlacement(count: number) {
     sessionStorage.setItem('placement_count', String(count));
@@ -124,6 +156,53 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
       setResetStatus('重置失敗：' + message);
     } finally {
       setIsResetting(false);
+    }
+  }
+
+  function modelPlaceholder(provider: LlmProvider) {
+    if (provider === 'openrouter') return 'openrouter/owl-alpha';
+    return 'gemini-2.5-flash';
+  }
+
+  async function handleSaveLlmSettings() {
+    if (isSavingLlm) return;
+    setIsSavingLlm(true);
+    setLlmStatus('LLM 設定儲存中…');
+    try {
+      const settings = await api.updateLlmSettings({
+        provider: llmProvider,
+        model: llmModel.trim() || null,
+        base_url: llmBaseUrl.trim() || null,
+        api_key: llmApiKey.trim() || null,
+        timeout_seconds: llmTimeout,
+      });
+      setLlmApiKey('');
+      setLlmKeyStatus(settings.api_key_configured ? `Key: ${settings.api_key_source}` : 'Key: none');
+      setLlmStatus('LLM 設定已儲存。');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLlmStatus('LLM 設定儲存失敗：' + message);
+    } finally {
+      setIsSavingLlm(false);
+    }
+  }
+
+  async function handleTestLlmSettings() {
+    if (isTestingLlm) return;
+    setIsTestingLlm(true);
+    setLlmStatus('LLM 測試中…');
+    try {
+      const result = await api.testLlmSettings();
+      if (result.ok) {
+        setLlmStatus(`LLM 測試成功：${result.provider ?? ''} ${result.model ?? ''}`.trim());
+      } else {
+        setLlmStatus('LLM 測試失敗：' + (result.error ?? 'unknown error'));
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLlmStatus('LLM 測試失敗：' + message);
+    } finally {
+      setIsTestingLlm(false);
     }
   }
 
@@ -282,6 +361,96 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
                   切換至 {theme === 'dark' ? '亮色模式' : '暗色模式'}
                 </button>
               </div>
+
+              <div className="home-setting-row home-setting-row-bordered home-setting-row-stack">
+                <div>
+                  <div className="home-setting-label">LLM 批改</div>
+                  <div className="home-setting-description">{llmKeyStatus}</div>
+                </div>
+                <div className="home-llm-grid">
+                  <label className="home-llm-field">
+                    <span>Provider</span>
+                    <select
+                      className="home-form-control"
+                      value={llmProvider}
+                      onChange={event => {
+                        const provider = event.target.value as LlmProvider;
+                        setLlmProvider(provider);
+                        if (provider === 'openai_compatible' && !llmBaseUrl.trim()) {
+                          setLlmBaseUrl(DEFAULT_OPENAI_COMPATIBLE_BASE_URL);
+                        }
+                      }}
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="gemini">Gemini native</option>
+                      <option value="openai_compatible">OpenAI-compatible</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </label>
+                  <label className="home-llm-field">
+                    <span>Model</span>
+                    <input
+                      className="home-form-control"
+                      value={llmModel}
+                      onChange={event => setLlmModel(event.target.value)}
+                      placeholder={modelPlaceholder(llmProvider)}
+                    />
+                  </label>
+                  {llmProvider === 'openai_compatible' && (
+                    <label className="home-llm-field home-llm-field-wide">
+                      <span>Base URL</span>
+                      <input
+                        className="home-form-control"
+                        value={llmBaseUrl}
+                        onChange={event => setLlmBaseUrl(event.target.value)}
+                        placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
+                      />
+                    </label>
+                  )}
+                  <label className="home-llm-field">
+                    <span>API Key</span>
+                    <input
+                      className="home-form-control"
+                      type="password"
+                      value={llmApiKey}
+                      onChange={event => setLlmApiKey(event.target.value)}
+                      placeholder="保留現有 key"
+                    />
+                  </label>
+                  <label className="home-llm-field">
+                    <span>Timeout</span>
+                    <input
+                      className="home-form-control"
+                      type="number"
+                      min={5}
+                      max={180}
+                      value={llmTimeout}
+                      onChange={event => setLlmTimeout(Number(event.target.value) || 45)}
+                    />
+                  </label>
+                  <div className="home-llm-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleTestLlmSettings}
+                      disabled={isTestingLlm}
+                    >
+                      {isTestingLlm ? '測試中…' : '測試'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleSaveLlmSettings}
+                      disabled={isSavingLlm}
+                    >
+                      {isSavingLlm ? '儲存中…' : '儲存'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {llmStatus && (
+                <div aria-live="polite" className="home-reset-status">
+                  {llmStatus}
+                </div>
+              )}
 
               {/* Reset progress */}
               <div className="home-setting-row home-setting-row-bordered">

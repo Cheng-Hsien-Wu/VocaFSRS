@@ -268,6 +268,17 @@ class ReviewReminderState(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+class LlmSettings(Base):
+    __tablename__ = "llm_settings"
+    id = Column(String, primary_key=True)
+    provider = Column(String, nullable=False, default="auto")
+    model = Column(String, nullable=True)
+    base_url = Column(Text, nullable=True)
+    api_key = Column(Text, nullable=True)
+    timeout_seconds = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
 class ConfusionCount(Base):
     __tablename__ = "confusion_counts"
     target_card_id = Column(String, ForeignKey("cards.id"), primary_key=True)

@@ -1,3 +1,4 @@
+import inspect
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -17,6 +18,7 @@ from app.constants import (
 )
 from app.llm_adjudicator import AdjudicationItem, AdjudicationUnavailable, adjudicate_answers
 from app.models import Card, ReviewLog, SessionItem, StudySession, TypedStudyAnswer
+from app.services.llm_settings import get_llm_runtime_config
 from app.services.review_scheduler import apply_fsrs_rating
 from app.services.time import to_utc_aware, to_utc_naive
 
@@ -447,7 +449,8 @@ async def _apply_llm_adjudication(
     claim_token: str,
 ) -> None:
     try:
-        results = await adjudicate_answers(batch_items)
+        runtime_config = await get_llm_runtime_config(db)
+        results = await _call_adjudicate_answers(batch_items, runtime_config)
     except AdjudicationUnavailable as exc:
         if not await _claim_is_current(db, list(answer_context), claim_token):
             await db.rollback()
@@ -491,6 +494,13 @@ async def _apply_llm_adjudication(
 
     await refresh_study_session_counts(db, session)
     await db.commit()
+
+
+async def _call_adjudicate_answers(batch_items: list[AdjudicationItem], runtime_config):
+    signature = inspect.signature(adjudicate_answers)
+    if "runtime_config" in signature.parameters:
+        return await adjudicate_answers(batch_items, runtime_config=runtime_config)
+    return await adjudicate_answers(batch_items)
 
 
 async def _claim_is_current(
