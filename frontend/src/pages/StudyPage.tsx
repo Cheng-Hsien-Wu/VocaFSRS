@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { STUDY_SUMMARY_SESSION_STORAGE_KEY } from '../domain';
 import { useStudySession } from '../hooks/useStudySession';
 import { formatTaipeiDateTime } from '../utils/datetime';
 import { MaterialSymbol } from '../components/MaterialSymbol';
@@ -175,7 +176,7 @@ export default function StudyPage() {
   // Navigate to summary page; LLM adjudication happens there.
   useEffect(() => {
     if (uiState.ui === 'complete' && session) {
-      sessionStorage.setItem('study_summary_typed_session_id', session.id);
+      sessionStorage.setItem(STUDY_SUMMARY_SESSION_STORAGE_KEY, session.id);
       navigate('/study/summary');
     }
   }, [uiState.ui, session, navigate]);

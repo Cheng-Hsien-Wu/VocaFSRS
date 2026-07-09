@@ -68,6 +68,8 @@ export const PLACEMENT_GATE_STATUSES = [
 ] as const;
 export type PlacementGateStatus = (typeof PLACEMENT_GATE_STATUSES)[number];
 
+export const STUDY_SUMMARY_SESSION_STORAGE_KEY = 'study_summary_typed_session_id';
+
 export interface StudyPlanInfo {
   started: boolean;
   remaining_days: number;

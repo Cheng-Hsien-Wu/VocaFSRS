@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MaterialSymbol } from '../components/MaterialSymbol';
+import { STUDY_SUMMARY_SESSION_STORAGE_KEY } from '../domain';
 import { api } from '../services/api';
 import { formatTaipeiDateTime } from '../utils/datetime';
 
@@ -31,7 +32,7 @@ interface AdjudicationStatus {
 
 export default function SessionSummaryPage() {
   const navigate = useNavigate();
-  const sessionId = sessionStorage.getItem('study_summary_typed_session_id');
+  const sessionId = sessionStorage.getItem(STUDY_SUMMARY_SESSION_STORAGE_KEY);
   const [status, setStatus] = useState<AdjudicationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
