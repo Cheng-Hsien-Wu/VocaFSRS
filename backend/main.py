@@ -46,6 +46,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 app.include_router(placement.router)
 app.include_router(import_csv.router)
 app.include_router(study.router)
@@ -69,6 +78,7 @@ async def unknown_api_route(path: str):
 
 
 frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+no_cache_headers = {"Cache-Control": "no-cache"}
 if frontend_dist.is_dir():
     assets_dir = frontend_dist / "assets"
     if assets_dir.is_dir():
@@ -85,5 +95,7 @@ if frontend_dist.is_dir():
 
         requested_file = (frontend_dist / path).resolve()
         if requested_file.is_relative_to(frontend_dist) and requested_file.is_file():
+            if requested_file.name == "index.html":
+                return FileResponse(requested_file, headers=no_cache_headers)
             return FileResponse(requested_file)
-        return FileResponse(frontend_dist / "index.html")
+        return FileResponse(frontend_dist / "index.html", headers=no_cache_headers)

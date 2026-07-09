@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db/dexie';
-import { api, type LlmProvider } from '../services/api';
+import { STUDY_SUMMARY_SESSION_STORAGE_KEY } from '../domain';
+import { api, type LlmProvider, type LlmSettingsUpdate } from '../services/api';
 import { useHomeStatus } from '../hooks/useHomeStatus';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { buildMainAction, nextDueLabel } from '../services/home-actions';
@@ -26,6 +27,12 @@ const STUDY_OPTIONS = [
 ];
 
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const LLM_PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'gemini', label: 'Gemini native' },
+  { value: 'openai_compatible', label: 'OpenAI-compatible' },
+  { value: 'openrouter', label: 'OpenRouter' },
+];
 
 export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
   const navigate = useNavigate();
@@ -164,18 +171,26 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
     return 'gemini-2.5-flash';
   }
 
+  function providerLabel(provider: LlmProvider) {
+    return LLM_PROVIDER_OPTIONS.find(option => option.value === provider)?.label ?? provider;
+  }
+
+  function buildLlmSettingsPayload(): LlmSettingsUpdate {
+    return {
+      provider: llmProvider,
+      model: llmModel.trim() || null,
+      base_url: llmBaseUrl.trim() || null,
+      api_key: llmApiKey.trim() || null,
+      timeout_seconds: llmTimeout,
+    };
+  }
+
   async function handleSaveLlmSettings() {
-    if (isSavingLlm) return;
+    if (isSavingLlm || isTestingLlm) return;
     setIsSavingLlm(true);
     setLlmStatus('LLM 設定儲存中…');
     try {
-      const settings = await api.updateLlmSettings({
-        provider: llmProvider,
-        model: llmModel.trim() || null,
-        base_url: llmBaseUrl.trim() || null,
-        api_key: llmApiKey.trim() || null,
-        timeout_seconds: llmTimeout,
-      });
+      const settings = await api.updateLlmSettings(buildLlmSettingsPayload());
       setLlmApiKey('');
       setLlmKeyStatus(settings.api_key_configured ? `Key: ${settings.api_key_source}` : 'Key: none');
       setLlmStatus('LLM 設定已儲存。');
@@ -188,10 +203,13 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
   }
 
   async function handleTestLlmSettings() {
-    if (isTestingLlm) return;
+    if (isTestingLlm || isSavingLlm) return;
     setIsTestingLlm(true);
-    setLlmStatus('LLM 測試中…');
+    setLlmStatus('LLM 設定儲存並測試中…');
     try {
+      const settings = await api.updateLlmSettings(buildLlmSettingsPayload());
+      setLlmApiKey('');
+      setLlmKeyStatus(settings.api_key_configured ? `Key: ${settings.api_key_source}` : 'Key: none');
       const result = await api.testLlmSettings();
       if (result.ok) {
         setLlmStatus(`LLM 測試成功：${result.provider ?? ''} ${result.model ?? ''}`.trim());
@@ -221,7 +239,7 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
     navigateToMistakes: () => navigate('/mistakes'),
     navigateToSummary: () => {
       if (studyPlan?.pending_adjudication_session_id) {
-        sessionStorage.setItem('study_summary_typed_session_id', studyPlan.pending_adjudication_session_id);
+        sessionStorage.setItem(STUDY_SUMMARY_SESSION_STORAGE_KEY, studyPlan.pending_adjudication_session_id);
       }
       navigate('/study/summary');
     },
@@ -363,87 +381,105 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
               </div>
 
               <div className="home-setting-row home-setting-row-bordered home-setting-row-stack">
-                <div>
-                  <div className="home-setting-label">LLM 批改</div>
-                  <div className="home-setting-description">{llmKeyStatus}</div>
-                </div>
-                <div className="home-llm-grid">
-                  <label className="home-llm-field">
-                    <span>Provider</span>
-                    <select
-                      className="home-form-control"
-                      value={llmProvider}
-                      onChange={event => {
-                        const provider = event.target.value as LlmProvider;
-                        setLlmProvider(provider);
-                        if (provider === 'openai_compatible' && !llmBaseUrl.trim()) {
-                          setLlmBaseUrl(DEFAULT_OPENAI_COMPATIBLE_BASE_URL);
-                        }
-                      }}
-                    >
-                      <option value="auto">Auto</option>
-                      <option value="gemini">Gemini native</option>
-                      <option value="openai_compatible">OpenAI-compatible</option>
-                      <option value="openrouter">OpenRouter</option>
-                    </select>
-                  </label>
-                  <label className="home-llm-field">
-                    <span>Model</span>
-                    <input
-                      className="home-form-control"
-                      value={llmModel}
-                      onChange={event => setLlmModel(event.target.value)}
-                      placeholder={modelPlaceholder(llmProvider)}
-                    />
-                  </label>
-                  {llmProvider === 'openai_compatible' && (
-                    <label className="home-llm-field home-llm-field-wide">
-                      <span>Base URL</span>
+                <div className="home-llm-panel">
+                  <div className="home-llm-panel-header">
+                    <div>
+                      <div className="home-setting-label">LLM 批改</div>
+                      <div className="home-setting-description">{llmKeyStatus}</div>
+                    </div>
+                    <div className="home-llm-actions">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleTestLlmSettings}
+                        disabled={isTestingLlm || isSavingLlm}
+                      >
+                        {isTestingLlm ? '測試中…' : '儲存並測試'}
+                      </button>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={handleSaveLlmSettings}
+                        disabled={isSavingLlm || isTestingLlm}
+                      >
+                        {isSavingLlm ? '儲存中…' : '儲存'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="home-llm-current">
+                    <span>{providerLabel(llmProvider)}</span>
+                    <strong>{llmModel.trim() || modelPlaceholder(llmProvider)}</strong>
+                  </div>
+
+                  <div className="home-llm-grid">
+                    <label className="home-llm-field">
+                      <span>Provider</span>
+                      <select
+                        className="home-form-control"
+                        value={llmProvider}
+                        onChange={event => {
+                          const provider = event.target.value as LlmProvider;
+                          setLlmProvider(provider);
+                          if (provider === 'openai_compatible' && !llmBaseUrl.trim()) {
+                            setLlmBaseUrl(DEFAULT_OPENAI_COMPATIBLE_BASE_URL);
+                          }
+                        }}
+                      >
+                        {LLM_PROVIDER_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="home-llm-field">
+                      <span>Model</span>
                       <input
                         className="home-form-control"
-                        value={llmBaseUrl}
-                        onChange={event => setLlmBaseUrl(event.target.value)}
-                        placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
+                        value={llmModel}
+                        onChange={event => setLlmModel(event.target.value)}
+                        placeholder={modelPlaceholder(llmProvider)}
                       />
                     </label>
-                  )}
-                  <label className="home-llm-field">
-                    <span>API Key</span>
-                    <input
-                      className="home-form-control"
-                      type="password"
-                      value={llmApiKey}
-                      onChange={event => setLlmApiKey(event.target.value)}
-                      placeholder="保留現有 key"
-                    />
-                  </label>
-                  <label className="home-llm-field">
-                    <span>Timeout</span>
-                    <input
-                      className="home-form-control"
-                      type="number"
-                      min={5}
-                      max={180}
-                      value={llmTimeout}
-                      onChange={event => setLlmTimeout(Number(event.target.value) || 45)}
-                    />
-                  </label>
-                  <div className="home-llm-actions">
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={handleTestLlmSettings}
-                      disabled={isTestingLlm}
-                    >
-                      {isTestingLlm ? '測試中…' : '測試'}
-                    </button>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={handleSaveLlmSettings}
-                      disabled={isSavingLlm}
-                    >
-                      {isSavingLlm ? '儲存中…' : '儲存'}
-                    </button>
                   </div>
+
+                  <details className="home-llm-advanced">
+                    <summary>
+                      <span>連線設定</span>
+                      <MaterialSymbol name="chevron_right" />
+                    </summary>
+                    <div className="home-llm-grid">
+                      {llmProvider === 'openai_compatible' && (
+                        <label className="home-llm-field home-llm-field-wide">
+                          <span>Base URL</span>
+                          <input
+                            className="home-form-control"
+                            value={llmBaseUrl}
+                            onChange={event => setLlmBaseUrl(event.target.value)}
+                            placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
+                          />
+                        </label>
+                      )}
+                      <label className="home-llm-field">
+                        <span>API Key</span>
+                        <input
+                          className="home-form-control"
+                          type="password"
+                          value={llmApiKey}
+                          onChange={event => setLlmApiKey(event.target.value)}
+                          placeholder="保留現有 key"
+                        />
+                      </label>
+                      <label className="home-llm-field">
+                        <span>Timeout</span>
+                        <input
+                          className="home-form-control"
+                          type="number"
+                          min={5}
+                          max={180}
+                          value={llmTimeout}
+                          onChange={event => setLlmTimeout(Number(event.target.value) || 45)}
+                        />
+                      </label>
+                    </div>
+                  </details>
                 </div>
               </div>
               {llmStatus && (
