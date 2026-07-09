@@ -38,6 +38,7 @@ def test_openrouter_uses_json_schema_response_format(monkeypatch):
     assert seen["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert seen["headers"]["Authorization"] == "Bearer test-key"
     assert seen["timeout"] == 9
+    assert seen["body"]["provider"] == {"require_parameters": True}
     assert response_format["type"] == "json_schema"
     assert response_format["json_schema"]["schema"]["required"] == ["results"]
     assert results[0]["id"] == "item-1"

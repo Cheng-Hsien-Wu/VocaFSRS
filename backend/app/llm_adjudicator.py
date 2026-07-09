@@ -228,6 +228,7 @@ def _call_openrouter_batch(prompt: str, timeout: int, runtime_config: LlmRuntime
         {
             "model": model,
             "temperature": 0,
+            "provider": {"require_parameters": True},
             "response_format": _adjudication_json_schema_response_format(),
             "messages": [{"role": "user", "content": prompt}],
         },
