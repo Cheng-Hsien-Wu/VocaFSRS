@@ -97,9 +97,6 @@ def study_session_response(session: StudySession) -> StudySessionResponse:
 @router.post("", response_model=StudySessionResponse)
 async def create_study_session(data: StudySessionCreate, db: AsyncSession = Depends(get_db)):
     req_size = data.requested_size
-    if data.mode == StudyMode.TIMED and req_size <= 0:
-        req_size = 50
-
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         deck_ids = await resolve_deck_ids(db, data.deck_ids)
@@ -317,7 +314,11 @@ async def abandon_study_session(session_id: str, db: AsyncSession = Depends(get_
     session = q.scalars().first()
     if not session:
         raise HTTPException(status_code=404, detail="Study session not found")
-    
+    if session.sync_status == StudySessionStatus.ABANDONED:
+        return study_session_response(session)
+    if session.sync_status not in ACTIVE_STUDY_STATUSES:
+        raise HTTPException(status_code=409, detail="Completed study sessions cannot be abandoned")
+
     session.sync_status = StudySessionStatus.ABANDONED
     session.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await fail_blocking_adjudication(
@@ -336,6 +337,10 @@ async def finish_study_session(session_id: str, db: AsyncSession = Depends(get_d
     session = q.scalars().first()
     if not session:
         raise HTTPException(status_code=404, detail="Study session not found")
+    if session.sync_status == StudySessionStatus.COMPLETED:
+        return study_session_response(session)
+    if session.sync_status not in ACTIVE_STUDY_STATUSES:
+        raise HTTPException(status_code=409, detail="Abandoned study sessions cannot be completed")
 
     session.sync_status = StudySessionStatus.COMPLETED
     session.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)

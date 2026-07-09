@@ -70,6 +70,15 @@ export function studySetupError(error: unknown): StudySetupError {
       placementStatus: detail.placement_status ?? null,
     };
   }
+  if (detail?.error === 'pending_adjudication') {
+    return {
+      errorType: 'pending_adjudication',
+      availableCount: 0,
+      availabilityState: detail.availability_state ?? null,
+      pendingAdjudicationCount: detail.pending_adjudication_count ?? 0,
+      message: detail.message ?? null,
+    };
+  }
   if (detail?.error === 'insufficient_cards' || detail?.error === 'no_due_cards') {
     return {
       errorType: detail.error,

@@ -69,6 +69,7 @@ export default function StudyPage() {
   const [typedAnswer, setTypedAnswer] = useState('');
   const [revealedAnswer, setRevealedAnswer] = useState<{ typed: string; expected: string } | null>(null);
   const [isSubmittingTyped, setIsSubmittingTyped] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [abandonArmed, setAbandonArmed] = useState(false);
   const [isAnswerFocused, setIsAnswerFocused] = useState(false);
   const [hasEnteredCompactMode, setHasEnteredCompactMode] = useState(false);
@@ -197,6 +198,7 @@ export default function StudyPage() {
     const hasExpired = isTimedMode && timerSeconds <= 0;
     typedSubmitInFlightRef.current = true;
     setIsSubmittingTyped(true);
+    setSubmitError(null);
     try {
       await submitTypedAnswer(revealedAnswer?.typed ?? typedAnswer.trim());
       setTypedAnswer('');
@@ -204,6 +206,9 @@ export default function StudyPage() {
       if (hasExpired) {
         await finishSession();
       }
+    } catch (error) {
+      console.error('Failed to submit typed answer:', error);
+      setSubmitError('答案尚未儲存，請確認連線後再按一次「下一題」。');
     } finally {
       setIsSubmittingTyped(false);
       typedSubmitInFlightRef.current = false;
@@ -379,7 +384,7 @@ export default function StudyPage() {
     );
   }
 
-	  if (errorState?.errorType === 'no_due_cards') {
+  if (errorState?.errorType === 'no_due_cards' || errorState?.errorType === 'pending_adjudication') {
     const nextDue = errorState.nextDue ? new Date(errorState.nextDue) : null;
     const nextDueLabel = nextDue && !Number.isNaN(nextDue.getTime())
       ? formatTaipeiDateTime(errorState.nextDue!)
@@ -401,7 +406,7 @@ export default function StudyPage() {
           </p>
           <div className="study-status-actions">
             <button className="btn btn-primary btn-full" onClick={() => navigate('/')}>
-              {hasScheduledReview ? '回首頁' : '回首頁盤點'}
+              {hasScheduledReview || hasPendingAdjudication ? '回首頁' : '回首頁盤點'}
             </button>
           </div>
         </div>
@@ -625,6 +630,11 @@ export default function StudyPage() {
               >
                 <span aria-live="polite">{isSubmittingTyped ? '儲存中…' : '下一題'}</span>
               </button>
+              {submitError && (
+                <p role="alert" className="study-status-copy text-error-static">
+                  {submitError}
+                </p>
+              )}
             </div>
           )}
         </form>

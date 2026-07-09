@@ -30,6 +30,7 @@ class StudyAvailability:
     new_candidates: list[StudyCandidate]
     next_review_due_at: datetime | None
     pending_adjudication_count: int
+    pending_adjudication_session_id: str | None
     active_session_blocked_count: int
     availability_state: AvailabilityState
     due_count_value: int | None = None
@@ -61,6 +62,9 @@ async def get_study_availability(
 ) -> StudyAvailability:
     active_card_ids = await _active_unanswered_card_ids(db)
     pending_adjudication_card_ids = await _pending_adjudication_card_ids(db)
+    pending_adjudication_session_id = (
+        await _pending_adjudication_session_id(db) if pending_adjudication_card_ids else None
+    )
     excluded_card_ids = active_card_ids | pending_adjudication_card_ids
 
     due_count = await _due_count(db, now_utc, deck_ids, excluded_card_ids)
@@ -90,6 +94,7 @@ async def get_study_availability(
         new_candidates=new_candidates,
         next_review_due_at=next_review_due_at,
         pending_adjudication_count=pending_adjudication_count,
+        pending_adjudication_session_id=pending_adjudication_session_id,
         active_session_blocked_count=len(active_card_ids),
         availability_state=availability_state,
         due_count_value=due_count,
@@ -123,6 +128,20 @@ async def _pending_adjudication_card_ids(db: AsyncSession) -> set[str]:
         )
     )
     return {row[0] for row in answers_q.all()}
+
+
+async def _pending_adjudication_session_id(db: AsyncSession) -> str | None:
+    session_q = await db.execute(
+        select(TypedStudyAnswer.study_session_id)
+        .join(StudySession, StudySession.id == TypedStudyAnswer.study_session_id)
+        .where(
+            StudySession.sync_status != StudySessionStatus.ABANDONED,
+            TypedStudyAnswer.adjudication_status.in_(BLOCKING_ADJUDICATION_STATUSES),
+        )
+        .order_by(desc(TypedStudyAnswer.answered_at))
+        .limit(1)
+    )
+    return session_q.scalars().first()
 
 
 def _apply_exclusions(stmt, excluded_card_ids: set[str]):

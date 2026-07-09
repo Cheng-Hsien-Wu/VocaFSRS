@@ -140,7 +140,12 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
     startResume,
     navigateToImport: () => navigate('/import'),
     navigateToMistakes: () => navigate('/mistakes'),
-    navigateToSummary: () => navigate('/study/summary'),
+    navigateToSummary: () => {
+      if (studyPlan?.pending_adjudication_session_id) {
+        sessionStorage.setItem('study_summary_typed_session_id', studyPlan.pending_adjudication_session_id);
+      }
+      navigate('/study/summary');
+    },
     reloadPage: () => window.location.reload(),
   }) : null;
 

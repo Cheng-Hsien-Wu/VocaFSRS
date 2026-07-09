@@ -93,7 +93,7 @@ export default function SessionSummaryPage() {
   }, [status]);
 
   const allDone = Boolean(status && status.total > 0 && status.succeeded === status.total);
-  const hasFailed = Boolean(status && status.failed > 0);
+  const isStuck = Boolean(sessionId && !isLoading && !allDone);
   const adjudicationPromptSummary = [
     '每一題送出英文單字、詞性、標準中文意思、你的輸入。',
     'LLM 只判斷語意是否正確，不要求逐字相同。',
@@ -125,7 +125,7 @@ export default function SessionSummaryPage() {
                 <div className="summary-status-row">
                   {isLoading && <span className="loading-spinner" aria-hidden="true" />}
                   <div role="status" aria-live="polite" className="summary-status-copy">
-                    {allDone ? 'LLM 批改完成' : isLoading ? `LLM 批改中，已送出 ${elapsedSeconds}s` : hasFailed ? '有題目尚未批改成功' : '等待批改'}
+                    {allDone ? 'LLM 批改完成' : isLoading ? `LLM 批改中，已送出 ${elapsedSeconds}s` : isStuck ? '批改中斷，請按下方重新批改' : '等待批改'}
                   </div>
                 </div>
                 <div className="summary-stat-grid">
@@ -144,9 +144,9 @@ export default function SessionSummaryPage() {
                     {error}
                   </div>
                 )}
-                {hasFailed && (
-                  <button className="btn btn-primary btn-full summary-retry" onClick={() => runAdjudication(true)} disabled={isLoading}>
-                    {isLoading ? '重新批改中…' : '重新批改'}
+                {isStuck && (
+                  <button className="btn btn-primary btn-full summary-retry" onClick={() => runAdjudication(true)}>
+                    重新批改
                   </button>
                 )}
               </section>

@@ -79,6 +79,7 @@ export interface StudyPlanInfo {
   available_now_count?: number;
   next_review_due_at?: string | null;
   pending_adjudication_count?: number;
+  pending_adjudication_session_id?: string | null;
   availability_state?: StudyAvailabilityState;
   deck_scope_error?: string;
   placement_status?: {

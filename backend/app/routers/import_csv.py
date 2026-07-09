@@ -15,6 +15,7 @@ from app.services.import_files import (
     MAX_ROWS,
     SUPPORTED_EXTENSIONS,
     cleanup_expired_import_jobs,
+    cleanup_uploaded_file,
     load_import_job,
     parse_upload,
     suggest_mapping,
@@ -68,17 +69,21 @@ async def upload_csv(file: UploadFile = File(...), db: AsyncSession = Depends(ge
         f.write(stored_contents)
         
     # 5. Create ImportJob record
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-    job = ImportJob(
-        id=job_id,
-        original_filename=file.filename or "uploaded.csv",
-        status=ImportJobStatus.PENDING,
-        detected_encoding=encoding,
-        expires_at=expires_at,
-        created_at=datetime.now(timezone.utc)
-    )
-    db.add(job)
-    await db.commit()
+    try:
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+        job = ImportJob(
+            id=job_id,
+            original_filename=file.filename or "uploaded.csv",
+            status=ImportJobStatus.PENDING,
+            detected_encoding=encoding,
+            expires_at=expires_at,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(job)
+        await db.commit()
+    except Exception:
+        cleanup_uploaded_file(job_id)
+        raise
     
     # 6. Generate mapping suggestion and preview rows
     mapping = suggest_mapping(headers)
