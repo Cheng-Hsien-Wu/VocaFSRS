@@ -16,7 +16,12 @@ from app.constants import (
     StudyItemSyncStatus,
     StudySessionStatus,
 )
-from app.llm_adjudicator import AdjudicationItem, AdjudicationUnavailable, adjudicate_answers
+from app.llm_adjudicator import (
+    AdjudicationItem,
+    AdjudicationUnavailable,
+    PartialAdjudicationUnavailable,
+    adjudicate_answers,
+)
 from app.models import Card, ReviewLog, SessionItem, StudySession, TypedStudyAnswer
 from app.services.llm_settings import get_llm_runtime_config
 from app.services.review_scheduler import apply_fsrs_rating
@@ -448,9 +453,13 @@ async def _apply_llm_adjudication(
     answer_context: dict[str, tuple[TypedStudyAnswer, SessionItem, Card]],
     claim_token: str,
 ) -> None:
+    errors_by_id: dict[str, str] = {}
     try:
         runtime_config = await get_llm_runtime_config(db)
         results = await _call_adjudicate_answers(batch_items, runtime_config)
+    except PartialAdjudicationUnavailable as exc:
+        results = exc.results
+        errors_by_id = exc.errors_by_id
     except AdjudicationUnavailable as exc:
         if not await _claim_is_current(db, list(answer_context), claim_token):
             await db.rollback()
@@ -469,7 +478,16 @@ async def _apply_llm_adjudication(
 
     for item_input in batch_items:
         answer, item, _ = answer_context[item_input.id]
-        result = results[item_input.id]
+        result = results.get(item_input.id)
+        if result is None:
+            answer.adjudication_status = AdjudicationStatus.FAILED
+            answer.adjudication_claim_token = None
+            answer.adjudication_claimed_at = None
+            answer.error_message = errors_by_id.get(
+                item_input.id,
+                "LLM response did not contain this answer",
+            )[:500]
+            continue
         due = await apply_fsrs_rating(
             db=db,
             session=session,

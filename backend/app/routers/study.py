@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from app.services.study_plan_status import study_plan_payload
 from app.services.study_session_builder import build_study_session_items
 from app.constants import (
     ACTIVE_STUDY_STATUSES,
+    AdjudicationStatus,
     BLOCKING_ADJUDICATION_STATUSES,
     StudyMode,
     StudySessionStatus,
@@ -68,6 +69,26 @@ class BatchTypedStudyAnswersResponse(BaseModel):
     duplicates: List[str]
     conflicts: List[str]
 
+
+class AdjudicationResultResponse(BaseModel):
+    id: str
+    session_item_id: str
+    card_id: str
+    english: str
+    part_of_speech: Optional[str] = None
+    typed_answer: str
+    expected_answer: str
+    status: AdjudicationStatus
+    verdict: Optional[Literal["correct", "partial", "incorrect"]] = None
+    rating: Optional[Literal["Good", "Hard", "Again"]] = None
+    reason: Optional[str] = None
+    confidence: Optional[float] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    error_message: Optional[str] = None
+    next_due: Optional[datetime] = None
+
+
 class AdjudicationStatusResponse(BaseModel):
     session_id: str
     pending: int
@@ -75,7 +96,7 @@ class AdjudicationStatusResponse(BaseModel):
     succeeded: int
     failed: int
     total: int
-    results: List[Dict[str, Any]]
+    results: List[AdjudicationResultResponse]
 
 
 def study_session_response(session: StudySession) -> StudySessionResponse:

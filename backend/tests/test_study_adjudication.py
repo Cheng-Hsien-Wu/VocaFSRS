@@ -467,3 +467,98 @@ async def test_unexpected_adjudication_failure_marks_claimed_answers_retryable(
         retry_result = await study_answers.retry_failed_adjudication(db, session_id)
         assert retry_result["succeeded"] == 1
         assert retry_result["failed"] == 0
+
+
+async def test_partial_adjudication_persists_success_and_retries_only_failed_answer(
+    client: AsyncClient,
+    monkeypatch,
+):
+    import app.services.study_answers as study_answers
+    from app.llm_adjudicator import (
+        AdjudicationResult,
+        PartialAdjudicationUnavailable,
+    )
+
+    async for db in get_test_db():
+        await db.execute(delete(DeckCard))
+        await db.execute(delete(Deck))
+        await db.execute(delete(ActivationQueue))
+        await db.execute(delete(ReviewState))
+        await db.execute(delete(ReviewLog))
+        await db.execute(delete(StudySession))
+        await db.execute(delete(SessionItem))
+        await db.execute(delete(TypedStudyAnswer))
+        await db.commit()
+        await setup_study_data(db)
+
+    session_response = await client.post("/api/v1/study-sessions", json={
+        "requested_size": 2,
+        "mode": "fixed",
+        "deck_ids": ["deck-study"],
+    })
+    session_id = session_response.json()["id"]
+    items = (await client.get(f"/api/v1/study-sessions/{session_id}/items")).json()
+    await client.post(f"/api/v1/study-sessions/{session_id}/typed-answers/batch", json={
+        "answers": [
+            {
+                "idempotency_key": f"partial-{index}",
+                "session_item_id": item["id"],
+                "card_id": item["target_card_id"],
+                "typed_answer": "字",
+                "answered_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for index, item in enumerate(items)
+        ],
+    })
+
+    first_call_ids: list[str] = []
+    failed_id = ""
+
+    async def partially_fail(batch_items):
+        nonlocal failed_id
+        first_call_ids.extend(item.id for item in batch_items)
+        failed_id = batch_items[1].id
+        success = batch_items[0]
+        raise PartialAdjudicationUnavailable(
+            results={
+                success.id: AdjudicationResult(
+                    "correct", "Good", "first batch succeeded", 1.0, "mock", "partial"
+                )
+            },
+            errors_by_id={failed_id: "provider timeout"},
+        )
+
+    monkeypatch.setattr(study_answers, "adjudicate_answers", partially_fail)
+    first_result = await client.post(f"/api/v1/study-sessions/{session_id}/adjudicate")
+
+    assert first_result.status_code == 200
+    assert first_result.json()["succeeded"] == 1
+    assert first_result.json()["failed"] == 1
+    assert len(first_call_ids) == 2
+
+    retry_call_ids: list[str] = []
+
+    async def succeed_on_retry(batch_items):
+        retry_call_ids.extend(item.id for item in batch_items)
+        return {
+            item.id: AdjudicationResult(
+                "correct", "Good", "retry succeeded", 1.0, "mock", "retry"
+            )
+            for item in batch_items
+        }
+
+    monkeypatch.setattr(study_answers, "adjudicate_answers", succeed_on_retry)
+    retry_result = await client.post(f"/api/v1/study-sessions/{session_id}/adjudication-retry")
+
+    assert retry_result.status_code == 200
+    assert retry_result.json()["succeeded"] == 2
+    assert retry_result.json()["failed"] == 0
+    assert retry_call_ids == [failed_id]
+
+    async for db in get_test_db():
+        review_logs = (
+            await db.execute(
+                select(ReviewLog).where(ReviewLog.study_session_id == session_id)
+            )
+        ).scalars().all()
+        assert len(review_logs) == 2

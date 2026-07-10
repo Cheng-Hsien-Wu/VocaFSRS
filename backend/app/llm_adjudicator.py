@@ -1,6 +1,8 @@
 import asyncio
 import json
+import math
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -11,10 +13,15 @@ from app.constants import APP_NAME
 from app.services.llm_settings import (
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_PROVIDER_ORDER,
+    LlmRoute,
     LlmRuntimeConfig,
 )
 
 DEFAULT_LLM_MODEL = settings.llm_model
+SKIPPED_TYPED_ANSWER = "不知道"
+RETRYABLE_LLM_HTTP_STATUSES = {429, 502, 503, 504}
+MAX_LLM_RETRY_SECONDS = 5.0
 
 
 @dataclass
@@ -38,6 +45,20 @@ class AdjudicationItem:
 
 class AdjudicationUnavailable(Exception):
     pass
+
+
+class PartialAdjudicationUnavailable(AdjudicationUnavailable):
+    def __init__(
+        self,
+        results: dict[str, AdjudicationResult],
+        errors_by_id: dict[str, str],
+    ) -> None:
+        self.results = results
+        self.errors_by_id = errors_by_id
+        first_error = next(iter(errors_by_id.values()), "unknown LLM error")
+        super().__init__(
+            f"{len(errors_by_id)} answer(s) failed LLM adjudication: {first_error}"
+        )
 
 
 def _use_mock_adjudication() -> bool:
@@ -124,14 +145,31 @@ def _format_http_error(exc: urllib.error.HTTPError) -> str:
     return f"HTTP {exc.code} {exc.reason}: {body or 'empty response body'}"
 
 
+def _http_retry_delay(exc: urllib.error.HTTPError) -> float:
+    raw_retry_after = exc.headers.get("Retry-After") if exc.headers else None
+    if raw_retry_after:
+        try:
+            retry_after = float(raw_retry_after)
+            if math.isfinite(retry_after):
+                return max(0.0, min(retry_after, MAX_LLM_RETRY_SECONDS))
+        except ValueError:
+            pass
+    return 1.0
+
+
 def _post_json(url: str, headers: dict[str, str], body: dict[str, Any], timeout: int) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raise AdjudicationUnavailable(_format_http_error(exc)) from exc
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if attempt == 0 and exc.code in RETRYABLE_LLM_HTTP_STATUSES:
+                time.sleep(_http_retry_delay(exc))
+                continue
+            raise AdjudicationUnavailable(_format_http_error(exc)) from exc
+    raise AssertionError("HTTP retry loop exhausted")
 
 
 def _adjudication_json_schema_response_format() -> dict[str, Any]:
@@ -177,12 +215,28 @@ def _default_runtime_config() -> LlmRuntimeConfig:
     )
 
 
-def _openrouter_model(runtime_config: LlmRuntimeConfig) -> str:
-    return runtime_config.model or os.getenv("OPENROUTER_MODEL", settings.openrouter_model or DEFAULT_OPENROUTER_MODEL)
+def _openrouter_model(runtime_config: LlmRuntimeConfig, route: LlmRoute | None = None) -> str:
+    if route and route.model:
+        return route.model
+    if runtime_config.provider == "openrouter" and runtime_config.model:
+        return runtime_config.model
+    return os.getenv("OPENROUTER_MODEL", settings.openrouter_model or DEFAULT_OPENROUTER_MODEL)
 
 
-def _openrouter_headers(runtime_config: LlmRuntimeConfig) -> dict[str, str]:
-    api_key = runtime_config.api_key or os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
+def _provider_api_key(runtime_config: LlmRuntimeConfig, provider: str) -> str:
+    if runtime_config.provider == provider and runtime_config.api_key:
+        return runtime_config.api_key
+    if runtime_config.provider == "auto" and runtime_config.api_key:
+        if provider == "openrouter":
+            return runtime_config.api_key
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
+    if provider == "gemini":
+        return os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
+    return os.getenv("OPENAI_COMPATIBLE_API_KEY") or os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
+
+
+def _openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -191,9 +245,20 @@ def _openrouter_headers(runtime_config: LlmRuntimeConfig) -> dict[str, str]:
     }
 
 
-def _call_google_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
-    api_key = runtime_config.api_key or os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
-    model = runtime_config.model or os.getenv("LLM_MODEL", settings.llm_model)
+def _call_google_batch(
+    prompt: str,
+    timeout: int,
+    runtime_config: LlmRuntimeConfig,
+    route: LlmRoute | None = None,
+) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = _provider_api_key(runtime_config, "gemini")
+    model = (
+        route.model
+        if route and route.model
+        else runtime_config.model
+        if runtime_config.provider == "gemini" and runtime_config.model
+        else os.getenv("LLM_MODEL", settings.llm_model)
+    )
     if not api_key:
         raise AdjudicationUnavailable("GOOGLE_API_KEY is not configured")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -217,14 +282,19 @@ def _call_google_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConf
     return results, "google", model
 
 
-def _call_openrouter_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
-    api_key = runtime_config.api_key or os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or "")
-    model = _openrouter_model(runtime_config)
+def _call_openrouter_batch(
+    prompt: str,
+    timeout: int,
+    runtime_config: LlmRuntimeConfig,
+    route: LlmRoute | None = None,
+) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = _provider_api_key(runtime_config, "openrouter")
+    model = _openrouter_model(runtime_config, route)
     if not api_key:
         raise AdjudicationUnavailable("OPENROUTER_API_KEY is not configured")
     response = _post_json(
         "https://openrouter.ai/api/v1/chat/completions",
-        _openrouter_headers(runtime_config),
+        _openrouter_headers(api_key),
         {
             "model": model,
             "temperature": 0,
@@ -242,10 +312,25 @@ def _call_openrouter_batch(prompt: str, timeout: int, runtime_config: LlmRuntime
     return results, "openrouter", model
 
 
-def _call_openai_compatible_batch(prompt: str, timeout: int, runtime_config: LlmRuntimeConfig) -> tuple[list[dict[str, Any]], str, str]:
-    api_key = runtime_config.api_key or os.getenv("OPENAI_COMPATIBLE_API_KEY") or os.getenv("GOOGLE_API_KEY", settings.google_api_key or "")
-    model = runtime_config.model or os.getenv("OPENAI_COMPATIBLE_MODEL", settings.llm_model)
-    base_url = runtime_config.base_url or os.getenv("OPENAI_COMPATIBLE_BASE_URL") or DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+def _call_openai_compatible_batch(
+    prompt: str,
+    timeout: int,
+    runtime_config: LlmRuntimeConfig,
+    route: LlmRoute | None = None,
+) -> tuple[list[dict[str, Any]], str, str]:
+    api_key = _provider_api_key(runtime_config, "openai_compatible")
+    model = (
+        route.model
+        if route and route.model
+        else runtime_config.model
+        if runtime_config.provider == "openai_compatible" and runtime_config.model
+        else os.getenv("OPENAI_COMPATIBLE_MODEL", settings.llm_model)
+    )
+    base_url = (
+        runtime_config.base_url
+        if runtime_config.provider == "openai_compatible" and runtime_config.base_url
+        else os.getenv("OPENAI_COMPATIBLE_BASE_URL") or DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+    )
     if not api_key:
         raise AdjudicationUnavailable("OpenAI-compatible API key is not configured")
     if not model:
@@ -283,30 +368,39 @@ def _provider_callers(runtime_config: LlmRuntimeConfig):
     }
     selected = runtime_config.provider
     if selected in callers:
-        return [callers[selected]]
-    return [_call_openrouter_batch, _call_google_batch, _call_openai_compatible_batch]
+        routes = [
+            LlmRoute(provider=selected, model=runtime_config.model or ""),
+            *runtime_config.fallback_routes,
+        ]
+        route_callers = []
+        seen_routes: set[tuple[str, str]] = set()
+        for route in routes:
+            route_key = (route.provider, route.model)
+            if route.provider not in callers or route_key in seen_routes:
+                continue
+            seen_routes.add(route_key)
+            route_callers.append((callers[route.provider], route))
+        return route_callers
+    return [(callers[provider], None) for provider in DEFAULT_PROVIDER_ORDER]
 
 
-async def adjudicate_answers(
+async def _adjudicate_remote_batch(
     items: list[AdjudicationItem],
-    runtime_config: LlmRuntimeConfig | None = None,
+    runtime_config: LlmRuntimeConfig,
 ) -> dict[str, AdjudicationResult]:
-    if not items:
-        return {}
-
-    runtime_config = runtime_config or _default_runtime_config()
-    timeout = runtime_config.timeout_seconds
-
-    if _use_mock_adjudication():
-        return {item.id: _mock_adjudication_result(item.expected, item.typed) for item in items}
-
     prompt = _batch_prompt(items)
     expected_ids = {item.id for item in items}
     errors: list[str] = []
 
-    for caller in _provider_callers(runtime_config):
+    for caller, route in _provider_callers(runtime_config):
         try:
-            raw_results, provider, model = await asyncio.to_thread(caller, prompt, timeout, runtime_config)
+            raw_results, provider, model = await asyncio.to_thread(
+                caller,
+                prompt,
+                runtime_config.timeout_seconds,
+                runtime_config,
+                route,
+            )
             normalized: dict[str, AdjudicationResult] = {}
             for raw in raw_results:
                 result_id = str(raw.get("id", "")).strip()
@@ -317,7 +411,78 @@ async def adjudicate_answers(
             if missing:
                 raise ValueError(f"LLM response missing result ids: {', '.join(sorted(missing))}")
             return normalized
-        except (AdjudicationUnavailable, urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError, json.JSONDecodeError) as exc:
+        except (
+            AdjudicationUnavailable,
+            urllib.error.URLError,
+            TimeoutError,
+            TypeError,
+            AttributeError,
+            ValueError,
+            KeyError,
+            IndexError,
+            json.JSONDecodeError,
+        ) as exc:
             errors.append(f"{caller.__name__}: {exc}")
 
     raise AdjudicationUnavailable("; ".join(errors) or "no LLM providers configured")
+
+
+async def adjudicate_answers(
+    items: list[AdjudicationItem],
+    runtime_config: LlmRuntimeConfig | None = None,
+) -> dict[str, AdjudicationResult]:
+    if not items:
+        return {}
+
+    runtime_config = runtime_config or _default_runtime_config()
+    results = {
+        item.id: AdjudicationResult(
+            verdict="incorrect",
+            rating="Again",
+            reason="learner selected unknown",
+            confidence=1.0,
+            provider="local",
+            model="rule",
+        )
+        for item in items
+        if item.typed.strip() == SKIPPED_TYPED_ANSWER
+    }
+    remote_items = [item for item in items if item.id not in results]
+    if not remote_items:
+        return results
+    if _use_mock_adjudication():
+        results.update({
+            item.id: _mock_adjudication_result(item.expected, item.typed)
+            for item in remote_items
+        })
+        return results
+
+    batch_size = max(1, runtime_config.batch_size)
+    batches = [remote_items[index:index + batch_size] for index in range(0, len(remote_items), batch_size)]
+    semaphore = asyncio.Semaphore(max(1, runtime_config.max_concurrency))
+
+    async def run_batch(
+        batch: list[AdjudicationItem],
+    ) -> tuple[dict[str, AdjudicationResult] | None, AdjudicationUnavailable | None]:
+        async with semaphore:
+            try:
+                return await _adjudicate_remote_batch(batch, runtime_config), None
+            except AdjudicationUnavailable as exc:
+                return None, exc
+            except Exception as exc:
+                return None, AdjudicationUnavailable(
+                    f"{exc.__class__.__name__}: {exc}"
+                )
+
+    errors_by_id: dict[str, str] = {}
+    batch_outcomes = await asyncio.gather(*(run_batch(batch) for batch in batches))
+    for batch, (batch_results, error) in zip(batches, batch_outcomes):
+        if batch_results is not None:
+            results.update(batch_results)
+            continue
+        error_message = str(error) if error else "unknown LLM error"
+        errors_by_id.update({item.id: error_message for item in batch})
+
+    if errors_by_id:
+        raise PartialAdjudicationUnavailable(results, errors_by_id)
+    return results
