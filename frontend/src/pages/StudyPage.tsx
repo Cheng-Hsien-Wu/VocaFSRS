@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { STUDY_SUMMARY_SESSION_STORAGE_KEY } from '../domain';
 import { useStudySession } from '../hooks/useStudySession';
 import { formatTaipeiDateTime } from '../utils/datetime';
 import { MaterialSymbol } from '../components/MaterialSymbol';
@@ -16,6 +15,7 @@ import {
   type TtsStatus,
 } from '../services/study-tts';
 import { useSpeechSynthesis } from '../hooks/useSpeechSynthesis';
+import { storeStudySummarySessionId } from '../services/study-summary-storage';
 
 const TIME_LIMIT = 180; // 3 minutes
 const SKIPPED_TYPED_ANSWER = '不知道';
@@ -176,7 +176,7 @@ export default function StudyPage() {
   // Navigate to summary page; LLM adjudication happens there.
   useEffect(() => {
     if (uiState.ui === 'complete' && session) {
-      sessionStorage.setItem(STUDY_SUMMARY_SESSION_STORAGE_KEY, session.id);
+      storeStudySummarySessionId(session.id);
       navigate('/study/summary');
     }
   }, [uiState.ui, session, navigate]);

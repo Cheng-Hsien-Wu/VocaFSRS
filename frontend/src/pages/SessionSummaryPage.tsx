@@ -1,79 +1,195 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MaterialSymbol } from '../components/MaterialSymbol';
-import { STUDY_SUMMARY_SESSION_STORAGE_KEY } from '../domain';
-import { api } from '../services/api';
+import { api, type AdjudicationStatusDto } from '../services/api';
+import { getStoredStudySummarySessionId } from '../services/study-summary-storage';
 import { formatTaipeiDateTime } from '../utils/datetime';
 
-interface AdjudicationResult {
-  id: string;
-  card_id: string;
-  english?: string;
-  part_of_speech?: string | null;
-  typed_answer: string;
-  expected_answer: string;
-  status: 'pending' | 'processing' | 'succeeded' | 'failed';
-  verdict?: 'correct' | 'partial' | 'incorrect' | null;
-  rating?: 'Good' | 'Hard' | 'Again' | null;
-  reason?: string | null;
-  confidence?: number | null;
-  next_due?: string | null;
-  error_message?: string | null;
-}
+const ADJUDICATION_POLL_INTERVAL_MS = 1500;
+const ADJUDICATION_RECLAIM_PROBE_INTERVAL_MS = 60 * 1000;
 
-interface AdjudicationStatus {
-  pending: number;
-  processing: number;
-  succeeded: number;
-  failed: number;
-  total: number;
-  results: AdjudicationResult[];
+function adjudicationIsActive(status: AdjudicationStatusDto) {
+  return status.pending + status.processing > 0;
 }
 
 export default function SessionSummaryPage() {
   const navigate = useNavigate();
-  const sessionId = sessionStorage.getItem(STUDY_SUMMARY_SESSION_STORAGE_KEY);
-  const [status, setStatus] = useState<AdjudicationStatus | null>(null);
+  const [sessionId] = useState(getStoredStudySummarySessionId);
+  const [status, setStatus] = useState<AdjudicationStatusDto | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
   const [adjudicationStartedAt, setAdjudicationStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const adjudicationInFlightRef = useRef(false);
-  const autoRunSessionRef = useRef<string | null>(null);
+  const statusRef = useRef<AdjudicationStatusDto | null>(null);
+  const requestSequenceRef = useRef(0);
+  const appliedSequenceRef = useRef(0);
+  const adjudicationRequestRef = useRef<{ controller: AbortController } | null>(null);
+  const pollNowRef = useRef<(() => void) | null>(null);
+  const processingProbeNeededRef = useRef(true);
+  const lastProcessingProbeAtRef = useRef<number | null>(null);
+
+  const applyStatus = useCallback((next: AdjudicationStatusDto, sequence: number) => {
+    const previous = statusRef.current;
+    const terminalPrevious = previous && previous.total > 0 && previous.succeeded === previous.total;
+    const terminalNext = next.total > 0 && next.succeeded === next.total;
+    if (
+      sequence < appliedSequenceRef.current
+      || (terminalPrevious && !terminalNext)
+      || (previous && next.succeeded < previous.succeeded)
+    ) {
+      return false;
+    }
+
+    appliedSequenceRef.current = sequence;
+    statusRef.current = next;
+    setStatus(next);
+    setError(null);
+
+    const active = adjudicationIsActive(next);
+    setIsLoading(active);
+    if (active) {
+      setAdjudicationStartedAt(current => current ?? Date.now());
+    } else {
+      setAdjudicationStartedAt(null);
+    }
+
+    if (next.processing === 0) {
+      processingProbeNeededRef.current = true;
+      lastProcessingProbeAtRef.current = null;
+    }
+    return true;
+  }, []);
 
   const runAdjudication = useCallback(async (retry = false) => {
     if (!sessionId) return;
-    if (adjudicationInFlightRef.current) return;
-    adjudicationInFlightRef.current = true;
+    const existing = adjudicationRequestRef.current;
+    if (existing) return;
+    processingProbeNeededRef.current = false;
+    lastProcessingProbeAtRef.current = Date.now();
+
+    const controller = new AbortController();
+    const request = { controller };
+    adjudicationRequestRef.current = request;
+    const sequence = ++requestSequenceRef.current;
     setIsLoading(true);
-    setAdjudicationStartedAt(Date.now());
-    setElapsedSeconds(0);
+    setAdjudicationStartedAt(current => current ?? Date.now());
     setError(null);
     try {
       const result = retry
-        ? await api.retryStudyAdjudication(sessionId)
-        : await api.adjudicateStudySession(sessionId);
-      setStatus(result);
+        ? await api.retryStudyAdjudication(sessionId, controller.signal)
+        : await api.adjudicateStudySession(sessionId, controller.signal);
+      applyStatus(result, sequence);
+      if (retry && adjudicationIsActive(result)) pollNowRef.current?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      try {
-        setStatus(await api.getStudyAdjudicationStatus(sessionId));
-      } catch {
-        // Keep the original error visible.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setError(err instanceof Error ? err.message : String(err));
       }
+      const currentStatus = statusRef.current;
+      if (retry && (!currentStatus || !adjudicationIsActive(currentStatus))) {
+        setIsLoading(false);
+        setAdjudicationStartedAt(null);
+      }
+      if (retry) pollNowRef.current?.();
     } finally {
-      setIsLoading(false);
-      setAdjudicationStartedAt(null);
-      adjudicationInFlightRef.current = false;
+      if (adjudicationRequestRef.current === request) {
+        adjudicationRequestRef.current = null;
+      }
     }
-  }, [sessionId]);
+  }, [applyStatus, sessionId]);
 
   useEffect(() => {
-    if (sessionId && autoRunSessionRef.current !== sessionId) {
-      autoRunSessionRef.current = sessionId;
-      runAdjudication();
-    }
-  }, [runAdjudication, sessionId]);
+    if (!sessionId) return;
+    let cancelled = false;
+    let timerId: number | null = null;
+    let statusRequestController: AbortController | null = null;
+    let pollInFlight = false;
+    let pollAgainRequested = false;
+
+    const schedulePoll = () => {
+      if (cancelled) return;
+      if (timerId !== null) window.clearTimeout(timerId);
+      timerId = window.setTimeout(poll, ADJUDICATION_POLL_INTERVAL_MS);
+    };
+
+    const pollNow = () => {
+      if (cancelled) return;
+      if (pollInFlight) {
+        pollAgainRequested = true;
+        return;
+      }
+      if (timerId !== null) window.clearTimeout(timerId);
+      timerId = null;
+      void poll();
+    };
+    pollNowRef.current = pollNow;
+
+    const poll = async () => {
+      if (cancelled || pollInFlight) return;
+      pollInFlight = true;
+      statusRequestController = new AbortController();
+      const sequence = ++requestSequenceRef.current;
+      let shouldContinuePolling = true;
+      try {
+        const current = await api.getStudyAdjudicationStatus(sessionId, statusRequestController.signal);
+        if (cancelled) return;
+        const applied = applyStatus(current, sequence);
+        if (!applied) {
+          shouldContinuePolling = statusRef.current === null || adjudicationIsActive(statusRef.current);
+          return;
+        }
+        shouldContinuePolling = adjudicationIsActive(current);
+
+        if (current.pending > 0) {
+          void runAdjudication();
+        } else if (
+          current.processing > 0
+          && (
+            processingProbeNeededRef.current
+            || lastProcessingProbeAtRef.current === null
+            || Date.now() - lastProcessingProbeAtRef.current >= ADJUDICATION_RECLAIM_PROBE_INTERVAL_MS
+          )
+        ) {
+          processingProbeNeededRef.current = false;
+          lastProcessingProbeAtRef.current = Date.now();
+          void runAdjudication();
+        }
+      } catch (err) {
+        if (!cancelled && !(err instanceof DOMException && err.name === 'AbortError')) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        pollInFlight = false;
+        statusRequestController = null;
+        if (pollAgainRequested) {
+          pollAgainRequested = false;
+          timerId = window.setTimeout(poll, 0);
+        } else if (shouldContinuePolling || adjudicationRequestRef.current !== null) {
+          schedulePoll();
+        }
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      processingProbeNeededRef.current = true;
+      pollNow();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+      if (pollNowRef.current === pollNow) pollNowRef.current = null;
+      statusRequestController?.abort();
+      adjudicationRequestRef.current?.controller.abort();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [applyStatus, runAdjudication, sessionId]);
+
+  const retryAdjudication = useCallback(() => {
+    void runAdjudication(true);
+  }, [runAdjudication]);
 
   useEffect(() => {
     if (!adjudicationStartedAt) return;
@@ -99,7 +215,7 @@ export default function SessionSummaryPage() {
     '每一題送出英文單字、詞性、標準中文意思、你的輸入。',
     'LLM 只判斷語意是否正確，不要求逐字相同。',
     '輸出只能是 JSON：correct→Good、partial→Hard、incorrect→Again，並附 confidence 和簡短 reason。',
-    '整輪複習會 batch 成一次請求；完成後才套用 FSRS 下次複習時間。',
+    '「不知道」直接判為 Again；其他答案分批送出，並以答案 ID 彙整。',
   ];
 
   return (
@@ -146,7 +262,7 @@ export default function SessionSummaryPage() {
                   </div>
                 )}
                 {isStuck && (
-                  <button className="btn btn-primary btn-full summary-retry" onClick={() => runAdjudication(true)}>
+                  <button className="btn btn-primary btn-full summary-retry" onClick={retryAdjudication}>
                     重新批改
                   </button>
                 )}
