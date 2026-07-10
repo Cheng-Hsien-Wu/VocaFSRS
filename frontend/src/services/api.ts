@@ -81,7 +81,50 @@ export interface BatchAcceptedResponse {
   conflicts: string[];
 }
 
+export interface AdjudicationResultDto {
+  id: string;
+  session_item_id: string;
+  card_id: string;
+  english: string;
+  part_of_speech: string | null;
+  typed_answer: string;
+  expected_answer: string;
+  status: 'pending' | 'processing' | 'succeeded' | 'failed';
+  verdict?: 'correct' | 'partial' | 'incorrect' | null;
+  rating?: 'Good' | 'Hard' | 'Again' | null;
+  reason?: string | null;
+  confidence?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  next_due?: string | null;
+  error_message?: string | null;
+}
+
+export interface AdjudicationStatusDto {
+  session_id: string;
+  pending: number;
+  processing: number;
+  succeeded: number;
+  failed: number;
+  total: number;
+  results: AdjudicationResultDto[];
+}
+
 export type LlmProvider = 'auto' | 'gemini' | 'openrouter' | 'openai_compatible';
+export type ConcreteLlmProvider = Exclude<LlmProvider, 'auto'>;
+
+export interface LlmFallbackRoute {
+  provider: ConcreteLlmProvider;
+  model: string;
+}
+
+export interface LlmProviderReadiness {
+  provider: ConcreteLlmProvider;
+  api_key_configured: boolean;
+  api_key_source: 'local' | 'environment' | 'none';
+  effective_model: string;
+  fallback_available: boolean;
+}
 
 export interface LlmSettingsDto {
   provider: LlmProvider;
@@ -91,6 +134,11 @@ export interface LlmSettingsDto {
   api_key_configured: boolean;
   api_key_source: 'local' | 'environment' | 'none';
   effective_model: string;
+  fallback_routes: LlmFallbackRoute[];
+  batch_size: number;
+  max_concurrency: number;
+  effective_route_chain: LlmFallbackRoute[];
+  provider_readiness: LlmProviderReadiness[];
 }
 
 export interface LlmSettingsUpdate {
@@ -100,6 +148,14 @@ export interface LlmSettingsUpdate {
   api_key?: string | null;
   clear_api_key?: boolean;
   timeout_seconds: number;
+  fallback_routes: LlmFallbackRoute[];
+  batch_size: number;
+  max_concurrency: number;
+}
+
+export interface NotificationSettingsDto {
+  minimum_due_count: number;
+  discord_configured: boolean;
 }
 
 export interface LlmSettingsTestResponse {
@@ -151,6 +207,22 @@ export const api = {
     const res = await fetch('/api/v1/llm-settings/test', { method: 'POST' });
     if (!res.ok) throw new Error('Failed to test LLM settings');
     return res.json() as Promise<LlmSettingsTestResponse>;
+  },
+
+  async getNotificationSettings(): Promise<NotificationSettingsDto> {
+    const res = await fetch('/api/v1/notification-settings');
+    if (!res.ok) throw new Error('Failed to fetch notification settings');
+    return res.json() as Promise<NotificationSettingsDto>;
+  },
+
+  async updateNotificationSettings(minimumDueCount: number): Promise<NotificationSettingsDto> {
+    const res = await fetch('/api/v1/notification-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minimum_due_count: minimumDueCount }),
+    });
+    if (!res.ok) throw new Error('Failed to save notification settings');
+    return res.json() as Promise<NotificationSettingsDto>;
   },
 
   async createPlacementSession(requestedCount: number): Promise<PlacementSessionDto> {
@@ -326,26 +398,28 @@ export const api = {
     return res.json() as Promise<BatchAcceptedResponse>;
   },
 
-  async adjudicateStudySession(sessionId: string) {
+  async adjudicateStudySession(sessionId: string, signal?: AbortSignal): Promise<AdjudicationStatusDto> {
     const res = await fetch(`/api/v1/study-sessions/${sessionId}/adjudicate`, {
       method: 'POST',
+      signal,
     });
     if (!res.ok) throw new Error('Failed to adjudicate study session');
-    return res.json();
+    return res.json() as Promise<AdjudicationStatusDto>;
   },
 
-  async retryStudyAdjudication(sessionId: string) {
+  async retryStudyAdjudication(sessionId: string, signal?: AbortSignal): Promise<AdjudicationStatusDto> {
     const res = await fetch(`/api/v1/study-sessions/${sessionId}/adjudication-retry`, {
       method: 'POST',
+      signal,
     });
     if (!res.ok) throw new Error('Failed to retry study adjudication');
-    return res.json();
+    return res.json() as Promise<AdjudicationStatusDto>;
   },
 
-  async getStudyAdjudicationStatus(sessionId: string) {
-    const res = await fetch(`/api/v1/study-sessions/${sessionId}/adjudication-status`);
+  async getStudyAdjudicationStatus(sessionId: string, signal?: AbortSignal): Promise<AdjudicationStatusDto> {
+    const res = await fetch(`/api/v1/study-sessions/${sessionId}/adjudication-status`, { signal });
     if (!res.ok) throw new Error('Failed to fetch adjudication status');
-    return res.json();
+    return res.json() as Promise<AdjudicationStatusDto>;
   },
 
   async abandonStudySession(sessionId: string) {
