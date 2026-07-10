@@ -6,6 +6,9 @@ from app.constants import (
     AdjudicationStatus,
     CardQualityStatus,
     DataQualityStatus,
+    DEFAULT_LLM_BATCH_SIZE,
+    DEFAULT_LLM_MAX_CONCURRENCY,
+    DEFAULT_MINIMUM_DUE_COUNT,
     PlacementAuditStatus,
     PlacementSessionStatus,
     StudyItemSyncStatus,
@@ -265,6 +268,8 @@ class ReviewReminderState(Base):
     last_sent_at = Column(DateTime, nullable=True)
     last_sent_target_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
+    minimum_due_count = Column(Integer, nullable=False, default=DEFAULT_MINIMUM_DUE_COUNT)
+    notification_armed = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -276,6 +281,9 @@ class LlmSettings(Base):
     base_url = Column(Text, nullable=True)
     api_key = Column(Text, nullable=True)
     timeout_seconds = Column(Integer, nullable=True)
+    fallback_routes_json = Column("fallback_providers_json", JSON, nullable=False, default=list)
+    batch_size = Column(Integer, nullable=False, default=DEFAULT_LLM_BATCH_SIZE)
+    max_concurrency = Column(Integer, nullable=False, default=DEFAULT_LLM_MAX_CONCURRENCY)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

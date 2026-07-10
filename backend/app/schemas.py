@@ -1,8 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Any, Literal, List, Optional
 from datetime import datetime
 
 from app.constants import (
+    DEFAULT_MINIMUM_DUE_COUNT,
     PlacementAnswer,
     PlacementAuditStatus,
     PlacementEventType,
@@ -88,6 +89,28 @@ class AuditQuestionsResponse(BaseModel):
 
 
 LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible"]
+ConcreteLlmProvider = Literal["gemini", "openrouter", "openai_compatible"]
+
+
+class LlmProviderReadiness(BaseModel):
+    provider: ConcreteLlmProvider
+    api_key_configured: bool
+    api_key_source: Literal["local", "environment", "none"]
+    effective_model: str
+    fallback_available: bool
+
+
+class LlmFallbackRoute(BaseModel):
+    provider: ConcreteLlmProvider
+    model: str = Field(min_length=1, max_length=200)
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str):
+        model = value.strip()
+        if not model:
+            raise ValueError("fallback model cannot be blank")
+        return model
 
 
 class LlmSettingsResponse(BaseModel):
@@ -98,6 +121,11 @@ class LlmSettingsResponse(BaseModel):
     api_key_configured: bool
     api_key_source: Literal["local", "environment", "none"]
     effective_model: str
+    fallback_routes: list[LlmFallbackRoute]
+    batch_size: int
+    max_concurrency: int
+    effective_route_chain: list[LlmFallbackRoute]
+    provider_readiness: list[LlmProviderReadiness]
 
 
 class LlmSettingsUpdate(BaseModel):
@@ -106,7 +134,20 @@ class LlmSettingsUpdate(BaseModel):
     base_url: Optional[str] = Field(default=None, max_length=500)
     api_key: Optional[str] = Field(default=None, max_length=4000)
     clear_api_key: bool = False
-    timeout_seconds: int = Field(default=45, ge=5, le=180)
+    timeout_seconds: Optional[int] = Field(default=None, ge=5, le=180)
+    fallback_routes: Optional[list[LlmFallbackRoute]] = Field(default=None, max_length=5)
+    batch_size: Optional[int] = Field(default=None, ge=1, le=50)
+    max_concurrency: Optional[int] = Field(default=None, ge=1, le=4)
+
+    @model_validator(mode="after")
+    def validate_fallback_routes(self):
+        fallback_routes = self.fallback_routes or []
+        route_keys = [(route.provider, route.model) for route in fallback_routes]
+        if len(set(route_keys)) != len(route_keys):
+            raise ValueError("fallback provider and model pairs must be unique")
+        if self.provider == "auto" and fallback_routes:
+            raise ValueError("auto provider cannot use custom fallback routes")
+        return self
 
 
 class LlmSettingsTestResponse(BaseModel):
@@ -114,3 +155,12 @@ class LlmSettingsTestResponse(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     error: Optional[str] = None
+
+
+class NotificationSettingsResponse(BaseModel):
+    minimum_due_count: int
+    discord_configured: bool
+
+
+class NotificationSettingsUpdate(BaseModel):
+    minimum_due_count: int = Field(default=DEFAULT_MINIMUM_DUE_COUNT, ge=1, le=1000)
