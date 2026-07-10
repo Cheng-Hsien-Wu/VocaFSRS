@@ -21,7 +21,11 @@ from app.services import notifications
 pytestmark = pytest.mark.asyncio
 
 
-async def setup_notification_deck(db: AsyncSession, due_at: datetime) -> None:
+async def setup_notification_deck(
+    db: AsyncSession,
+    due_at: datetime,
+    minimum_due_count: int = 1,
+) -> None:
     from app.database import Base
     from tests.conftest import engine
 
@@ -72,6 +76,10 @@ async def setup_notification_deck(db: AsyncSession, due_at: datetime) -> None:
         scheduled_days=1,
         reps=1,
         lapses=0,
+    ))
+    db.add(ReviewReminderState(
+        id=notifications.REMINDER_STATE_ID,
+        minimum_due_count=minimum_due_count,
     ))
     await db.commit()
 
@@ -175,7 +183,7 @@ async def test_process_due_notifications_skips_when_discord_is_not_configured(cl
     assert sent_count == 0
 
 
-async def test_due_notification_sends_once_per_due_target(client, monkeypatch):
+async def test_due_notification_waits_for_minimum_due_count(client, monkeypatch):
     from tests.conftest import TestingSessionLocal
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -188,42 +196,175 @@ async def test_due_notification_sends_once_per_due_target(client, monkeypatch):
     monkeypatch.setattr(notifications, "_send_discord_review_reminder", fake_send)
 
     async with TestingSessionLocal() as db:
-        due_at = now - timedelta(minutes=5)
-        await setup_notification_deck(db, due_at)
+        await setup_notification_deck(db, now - timedelta(minutes=5), minimum_due_count=10)
+        sent_count = await notifications.process_due_notifications(db, now)
+
+    assert sent_count == 0
+    assert sent == []
+
+
+async def test_due_notification_sends_at_exact_minimum_due_count(client, monkeypatch):
+    from tests.conftest import TestingSessionLocal
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    due_at = now - timedelta(minutes=5)
+    sent: list[datetime] = []
+
+    async def fake_snapshot(_db: AsyncSession, _now: datetime) -> tuple[datetime, int]:
+        return due_at, 10
+
+    async def fake_send(target_at: datetime) -> None:
+        sent.append(target_at)
+
+    monkeypatch.setattr(notifications, "notifications_configured", lambda: True)
+    monkeypatch.setattr(notifications, "_review_notification_snapshot", fake_snapshot)
+    monkeypatch.setattr(notifications, "_send_discord_review_reminder", fake_send)
+
+    async with TestingSessionLocal() as db:
+        await setup_notification_deck(db, due_at, minimum_due_count=10)
+        sent_count = await notifications.process_due_notifications(db, now)
+
+    assert sent_count == 1
+    assert sent == [due_at]
+
+
+async def test_notification_settings_default_and_update(client):
+    from tests.conftest import TestingSessionLocal
+
+    async with TestingSessionLocal() as db:
+        await db.execute(delete(ReviewReminderState))
+        await db.commit()
+
+    initial = await client.get("/api/v1/notification-settings")
+    assert initial.status_code == 200
+    assert initial.json()["minimum_due_count"] == 10
+
+    updated = await client.put(
+        "/api/v1/notification-settings",
+        json={"minimum_due_count": 12},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["minimum_due_count"] == 12
+
+    too_low = await client.put(
+        "/api/v1/notification-settings",
+        json={"minimum_due_count": 0},
+    )
+    too_high = await client.put(
+        "/api/v1/notification-settings",
+        json={"minimum_due_count": 1001},
+    )
+    assert too_low.status_code == 422
+    assert too_high.status_code == 422
+
+
+async def test_due_notification_sends_once_per_threshold_episode_when_targets_change(client, monkeypatch):
+    from tests.conftest import TestingSessionLocal
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    sent: list[datetime] = []
+    first_target = now - timedelta(minutes=10)
+    changed_target = now - timedelta(minutes=5)
+    next_episode_target = now - timedelta(minutes=1)
+    snapshots = iter([
+        (first_target, 10),
+        (changed_target, 11),
+        (changed_target, 9),
+        (next_episode_target, 10),
+    ])
+
+    async def fake_snapshot(_db: AsyncSession, _now: datetime) -> tuple[datetime, int]:
+        return next(snapshots)
+
+    async def fake_send(target_at: datetime) -> None:
+        sent.append(target_at)
+
+    monkeypatch.setattr(notifications, "notifications_configured", lambda: True)
+    monkeypatch.setattr(notifications, "_review_notification_snapshot", fake_snapshot)
+    monkeypatch.setattr(notifications, "_send_discord_review_reminder", fake_send)
+
+    async with TestingSessionLocal() as db:
+        await setup_notification_deck(db, first_target, minimum_due_count=10)
 
         first_count = await notifications.process_due_notifications(db, now)
         second_count = await notifications.process_due_notifications(db, now)
+        below_threshold_count = await notifications.process_due_notifications(db, now)
+        next_episode_count = await notifications.process_due_notifications(db, now)
         state = await db.get(ReviewReminderState, notifications.REMINDER_STATE_ID)
 
     assert first_count == 1
     assert second_count == 0
-    assert sent == [due_at]
+    assert below_threshold_count == 0
+    assert next_episode_count == 1
+    assert sent == [first_target, next_episode_target]
     assert state is not None
-    assert state.last_sent_target_at == due_at
+    assert state.last_sent_target_at == next_episode_target
     assert state.last_error is None
+    assert state.notification_armed is False
 
 
-async def test_due_notification_failure_does_not_mark_target_sent(client, monkeypatch):
+async def test_due_notification_failure_stays_armed_and_retries(client, monkeypatch):
     from tests.conftest import TestingSessionLocal
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    attempts = 0
 
     async def fake_send(target_at: datetime) -> None:
-        raise RuntimeError(f"boom {target_at.isoformat()}")
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError(f"boom {target_at.isoformat()}")
 
     monkeypatch.setattr(notifications, "notifications_configured", lambda: True)
     monkeypatch.setattr(notifications, "_send_discord_review_reminder", fake_send)
 
     async with TestingSessionLocal() as db:
-        await setup_notification_deck(db, now - timedelta(minutes=5))
+        due_at = now - timedelta(minutes=5)
+        await setup_notification_deck(db, due_at)
 
-        sent_count = await notifications.process_due_notifications(db, now)
+        first_count = await notifications.process_due_notifications(db, now)
+        state_after_failure = await db.get(ReviewReminderState, notifications.REMINDER_STATE_ID)
+        assert state_after_failure is not None
+        assert state_after_failure.notification_armed is True
+        assert state_after_failure.last_sent_target_at is None
+        assert state_after_failure.last_error and "boom" in state_after_failure.last_error
+
+        second_count = await notifications.process_due_notifications(db, now)
         state = await db.get(ReviewReminderState, notifications.REMINDER_STATE_ID)
 
-    assert sent_count == 0
+    assert first_count == 0
+    assert second_count == 1
+    assert attempts == 2
     assert state is not None
-    assert state.last_sent_target_at is None
-    assert state.last_error and "boom" in state.last_error
+    assert state.notification_armed is False
+    assert state.last_sent_target_at == due_at
+    assert state.last_error is None
+
+
+async def test_notification_threshold_change_rearms_but_same_value_does_not(client):
+    from app.schemas import NotificationSettingsUpdate
+    from app.services.notification_settings import update_notification_settings
+    from tests.conftest import TestingSessionLocal
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with TestingSessionLocal() as db:
+        await setup_notification_deck(db, now - timedelta(minutes=5), minimum_due_count=10)
+        state = await db.get(ReviewReminderState, notifications.REMINDER_STATE_ID)
+        assert state is not None
+        state.notification_armed = False
+        await db.commit()
+
+        await update_notification_settings(
+            db,
+            NotificationSettingsUpdate(minimum_due_count=10),
+        )
+        assert state.notification_armed is False
+
+        await update_notification_settings(
+            db,
+            NotificationSettingsUpdate(minimum_due_count=12),
+        )
+        assert state.notification_armed is True
 
 
 async def test_discord_rate_limit_retries_once_with_bounded_delay(monkeypatch):

@@ -31,14 +31,22 @@ def notifications_configured() -> bool:
 
 
 async def next_review_notification_target(db: AsyncSession, now_utc: datetime) -> datetime | None:
+    target_at, _ = await _review_notification_snapshot(db, now_utc)
+    return target_at
+
+
+async def _review_notification_snapshot(
+    db: AsyncSession,
+    now_utc: datetime,
+) -> tuple[datetime | None, int]:
     plan_q = await db.execute(select(StudyPlan).where(StudyPlan.id == "default"))
     if not plan_q.scalars().first():
-        return None
+        return None, 0
 
     try:
         deck_ids = await resolve_deck_ids(db, None)
     except DeckScopeError:
-        return None
+        return None, 0
 
     availability = await get_study_availability(
         db=db,
@@ -50,20 +58,23 @@ async def next_review_notification_target(db: AsyncSession, now_utc: datetime) -
     if availability.due_cards:
         review_state = await db.get(ReviewState, availability.due_cards[0].id)
         if review_state:
-            return review_state.due
-    return availability.next_review_due_at
+            return review_state.due, availability.due_count
+    return availability.next_review_due_at, availability.due_count
 
 
 async def process_due_notifications(db: AsyncSession, now_utc: datetime) -> int:
+    state = await _get_or_create_reminder_state(db)
+    target_at, due_count = await _review_notification_snapshot(db, now_utc)
+    if due_count < state.minimum_due_count:
+        if not state.notification_armed:
+            state.notification_armed = True
+            await db.commit()
+        return 0
     if not notifications_configured():
         return 0
-
-    target_at = await next_review_notification_target(db, now_utc)
-    if not target_at or target_at > now_utc:
+    if not state.notification_armed:
         return 0
-
-    state = await _get_or_create_reminder_state(db)
-    if state.last_sent_target_at == target_at:
+    if not target_at or target_at > now_utc:
         return 0
 
     try:
@@ -76,6 +87,7 @@ async def process_due_notifications(db: AsyncSession, now_utc: datetime) -> int:
     state.last_sent_target_at = target_at
     state.last_sent_at = now_utc
     state.last_error = None
+    state.notification_armed = False
     await db.commit()
     return 1
 
