@@ -406,7 +406,7 @@ test.describe('Session Summary', () => {
     for (const theme of THEMES) {
       test(`${vp.name} - ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        await page.route('**/api/v1/study-sessions/screenshot-session/adjudicate', async route => {
+        await page.route(/\/api\/v1\/study-sessions\/screenshot-session\/adjudicat(e|ion-status)$/, async route => {
           await route.fulfill({
             contentType: 'application/json',
             body: JSON.stringify({
