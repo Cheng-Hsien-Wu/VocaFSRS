@@ -90,25 +90,6 @@ export function LlmSettingsPanel() {
       || draft.fallbackRoutes.some(route => route.provider === item.provider)
     ));
   }, [draft, settings]);
-  const effectiveChain = useMemo(() => {
-    if (!settings || !draft) return [];
-    if (draft.provider === 'auto') {
-      const preservesLocalKey = settings.api_key_source === 'local'
-        && providersShareLocalKey(settings.provider, draft.provider);
-      return settings.provider_readiness
-        .filter(item => (
-          item.fallback_available
-          || (preservesLocalKey && item.provider === localKeyProvider(draft.provider))
-        ))
-        .map(item => ({ provider: item.provider, model: item.effective_model }));
-    }
-    return [
-      { provider: draft.provider, model: effectiveModel },
-      ...draft.fallbackRoutes.filter(route => route.model.trim()),
-    ];
-  }, [draft, effectiveModel, settings]);
-  const chainLabel = draft?.provider === 'auto' ? '目前可用順序' : '設定順序';
-
   function updateDraft(patch: Partial<LlmSettingsDraft>) {
     setDraft(current => current ? { ...current, ...patch } : current);
   }
@@ -256,13 +237,6 @@ export function LlmSettingsPanel() {
 
           {draft && (
             <>
-              <div className="home-llm-current" aria-label="LLM 批改路由順序">
-                <span>{chainLabel}</span>
-                <strong>{effectiveChain.length > 0
-                  ? effectiveChain.map(route => `${providerLabel(route.provider)} · ${route.model}`).join(' → ')
-                  : '尚無可用路由'}</strong>
-              </div>
-
               <div className="home-llm-grid">
                 <label className="home-llm-field">
                   <span>主要服務</span>
@@ -288,7 +262,7 @@ export function LlmSettingsPanel() {
                 <fieldset className="home-llm-fallback">
                   <legend>備援模型</legend>
                   <div className="home-llm-fallback-header">
-                    <p>主要模型失敗時，依下列順序嘗試；同一服務可加入多個模型。</p>
+                    <p>主要模型失敗時依上到下嘗試；同一服務可加入多個模型。</p>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm home-compact-action"

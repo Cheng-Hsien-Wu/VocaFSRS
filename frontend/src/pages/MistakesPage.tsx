@@ -38,6 +38,10 @@ export default function MistakesPage() {
     setExportLimitType,
     exportCustomLimit,
     setExportCustomLimit,
+    minimumAgainType,
+    setMinimumAgainType,
+    customMinimumAgain,
+    setCustomMinimumAgain,
     exportPreview,
     isExporting,
     copyFeedback,
@@ -243,6 +247,10 @@ export default function MistakesPage() {
           setLimitType={setExportLimitType}
           customLimit={exportCustomLimit}
           setCustomLimit={setExportCustomLimit}
+          minimumAgainType={minimumAgainType}
+          setMinimumAgainType={setMinimumAgainType}
+          customMinimumAgain={customMinimumAgain}
+          setCustomMinimumAgain={setCustomMinimumAgain}
           preview={exportPreview}
           isExporting={isExporting}
           copyFeedback={copyFeedback}

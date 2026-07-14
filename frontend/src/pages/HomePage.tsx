@@ -41,6 +41,8 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
     pendingCount,
     studyPlan,
     studyPlanError,
+    isRefreshing,
+    refresh,
     homeStateLoaded,
   } = useHomeStatus();
 
@@ -169,7 +171,19 @@ export default function HomePage({ theme, onToggleTheme }: HomePageProps) {
           {mainAction ? (
             <section className={`home-action-card home-action-${mainAction.state}`}>
               <div className="home-action-copy">
-                <p className="home-action-kicker">現在該做什麼</p>
+                <div className="home-action-meta">
+                  <p className="home-action-kicker">現在該做什麼</p>
+                  <button
+                    type="button"
+                    className="home-refresh-button"
+                    onClick={() => { void refresh(); }}
+                    disabled={isRefreshing}
+                    aria-label={isRefreshing ? '首頁狀態更新中' : '更新首頁狀態'}
+                    title="更新首頁狀態"
+                  >
+                    <MaterialSymbol name="refresh" className={isRefreshing ? 'home-refresh-icon-active' : ''} />
+                  </button>
+                </div>
                 <h1>{mainAction.title}</h1>
                 <p>{mainAction.detail}</p>
               </div>

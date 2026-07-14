@@ -52,7 +52,7 @@ test('settings supports ordered models and uses consistent notification actions'
   const llmPanel = page.locator('.home-llm-panel');
   const routes = llmPanel.locator('.home-llm-route');
   await expect(routes).toHaveCount(3);
-  await expect(llmPanel).toContainText('設定順序');
+  await expect(llmPanel.locator('.home-llm-current')).toHaveCount(0);
 
   await llmPanel.getByRole('button', { name: '將備援模型 2 上移' }).click();
   await expect(routes.nth(0).locator('input')).toHaveValue('anthropic/claude-3.5-haiku');
@@ -60,6 +60,7 @@ test('settings supports ordered models and uses consistent notification actions'
   const notificationPanel = page.locator('.home-notification-panel');
   await expect(notificationPanel).toContainText('待複習題數達到');
   await expect(notificationPanel.locator('.material-symbol')).toHaveCount(0);
+  await expect(notificationPanel.locator('.home-notification-control').getByRole('button', { name: '儲存' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -86,7 +87,7 @@ test('settings rejects the primary model as a fallback and clears a draft key on
   await expect(apiKey).toHaveValue('');
 });
 
-test('switching OpenRouter to Auto preserves its local key and previews the Auto chain', async ({ page }) => {
+test('switching OpenRouter to Auto preserves its local key without a redundant route summary', async ({ page }) => {
   let updatePayload: Record<string, unknown> | null = null;
   await page.route('**/api/v1/llm-settings', async route => {
     if (route.request().method() === 'PUT') {
@@ -100,10 +101,8 @@ test('switching OpenRouter to Auto preserves its local key and previews the Auto
   const llmPanel = page.locator('.home-llm-panel');
   await llmPanel.getByLabel('主要服務').selectOption('auto');
 
-  const chain = llmPanel.locator('.home-llm-current');
-  await expect(chain).toContainText('目前可用順序');
-  await expect(chain).toContainText('OpenRouter · openrouter/default');
-  await expect(chain).not.toContainText('google/gemini-2.5-flash');
+  await expect(llmPanel.locator('.home-llm-current')).toHaveCount(0);
+  await expect(llmPanel.getByText('依可用服務使用各自預設模型')).toBeVisible();
 
   await llmPanel.getByRole('button', { name: '儲存', exact: true }).click();
   await expect.poll(() => updatePayload).not.toBeNull();

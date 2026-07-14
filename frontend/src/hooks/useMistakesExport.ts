@@ -8,6 +8,8 @@ export function useMistakesExport() {
   const [exportFilterType, setExportFilterType] = useState('recent_7_days');
   const [exportLimitType, setExportLimitType] = useState('all');
   const [exportCustomLimit, setExportCustomLimit] = useState('10');
+  const [minimumAgainType, setMinimumAgainType] = useState('2');
+  const [customMinimumAgain, setCustomMinimumAgain] = useState('2');
   const [exportPreview, setExportPreview] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState('');
@@ -22,6 +24,7 @@ export function useMistakesExport() {
         filterType: exportFilterType,
         deckId: null,
         limit: exportLimit(exportLimitType, exportCustomLimit),
+        minimumAgainCount: minimumAgainCount(minimumAgainType, customMinimumAgain),
         format: PODCAST_EXPORT_FORMAT,
       });
       if (requestId === exportRequestIdRef.current) {
@@ -36,7 +39,7 @@ export function useMistakesExport() {
         setIsExporting(false);
       }
     }
-  }, [exportCustomLimit, exportFilterType, exportLimitType]);
+  }, [customMinimumAgain, exportCustomLimit, exportFilterType, exportLimitType, minimumAgainType]);
 
   useEffect(() => {
     if (!showExportModal) return;
@@ -92,6 +95,10 @@ export function useMistakesExport() {
     setExportLimitType,
     exportCustomLimit,
     setExportCustomLimit,
+    minimumAgainType,
+    setMinimumAgainType,
+    customMinimumAgain,
+    setCustomMinimumAgain,
     exportPreview,
     isExporting,
     copyFeedback,
@@ -107,6 +114,13 @@ function exportLimit(limitType: string, customLimit: string): number | null {
   if (limitType === '15') return 15;
   if (limitType === 'custom') return parseInt(customLimit, 10) || 10;
   return null;
+}
+
+function minimumAgainCount(type: string, customValue: string): number {
+  if (type === 'custom') {
+    return Math.min(1000, Math.max(1, parseInt(customValue, 10) || 2));
+  }
+  return parseInt(type, 10) || 2;
 }
 
 function copyWithHiddenTextarea(text: string) {

@@ -328,6 +328,53 @@ async def test_confusion_pairs_aggregation_and_exclusion(client: AsyncClient):
     assert res_act.json()["items"][0]["occurrence_count"] == 8
 
 # ─── 3. Export tests ───────────────────────────────────────
+async def test_podcast_export_filters_historical_again_count_within_selected_period(client: AsyncClient):
+    async for db in get_test_db():
+        await setup_mistakes_export_data(db)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.add_all([
+            ReviewLog(id="historical-old-again", card_id="card-0", rating=1, was_correct=False, reviewed_at=now - timedelta(days=8)),
+            ReviewLog(id="historical-again-a", card_id="card-0", rating=1, was_correct=False, reviewed_at=now - timedelta(days=2)),
+            ReviewLog(id="historical-again-b", card_id="card-0", rating=1, was_correct=False, reviewed_at=now - timedelta(days=1)),
+            ReviewLog(id="historical-latest-good", card_id="card-0", rating=3, was_correct=True, reviewed_at=now),
+            ReviewLog(id="single-again", card_id="card-1", rating=1, was_correct=False, reviewed_at=now - timedelta(days=1)),
+        ])
+        await db.commit()
+
+    filtered = await client.post("/api/v1/exports", json={
+        "filter_type": "recent_7_days",
+        "minimum_again_count": 2,
+        "format": "notebooklm",
+    })
+    assert filtered.status_code == 200
+    assert "word-0" in filtered.json()["content"]
+    assert "word-1" not in filtered.json()["content"]
+
+    stricter = await client.post("/api/v1/exports", json={
+        "filter_type": "recent_7_days",
+        "minimum_again_count": 3,
+        "format": "notebooklm",
+    })
+    assert stricter.status_code == 200
+    assert "word-0" not in stricter.json()["content"]
+
+    legacy = await client.post("/api/v1/exports", json={
+        "filter_type": "recent_7_days",
+        "format": "notebooklm",
+    })
+    assert legacy.status_code == 200
+    assert "word-0" not in legacy.json()["content"]
+    assert "word-1" in legacy.json()["content"]
+
+    for invalid_threshold in (0, 1001):
+        invalid = await client.post("/api/v1/exports", json={
+            "filter_type": "recent_7_days",
+            "minimum_again_count": invalid_threshold,
+            "format": "notebooklm",
+        })
+        assert invalid.status_code == 422
+
+
 async def test_exports_formats_and_quoting(client: AsyncClient):
     async for db in get_test_db():
         await setup_mistakes_export_data(db)

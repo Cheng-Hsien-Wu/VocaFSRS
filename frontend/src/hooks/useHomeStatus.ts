@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { db } from '../db/dexie';
 import {
   ACTIVE_PLACEMENT_STATUSES,
@@ -11,6 +11,7 @@ import {
   reconcileStudyPosition,
 } from '../services/study-session-store';
 import { reconcileSessionPosition } from './usePlacementSession';
+import { parseApiDate } from '../utils/datetime';
 
 interface ServerPlacementManifestItem {
   position: number;
@@ -27,23 +28,71 @@ export function useHomeStatus() {
   const [studyPlanError, setStudyPlanError] = useState<string>('');
   const [localStateLoaded, setLocalStateLoaded] = useState(false);
   const [studyPlanLoaded, setStudyPlanLoaded] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const mountedRef = useRef(false);
+  const refreshRequestIdRef = useRef(0);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+
+  const refresh = useCallback(() => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const requestId = refreshRequestIdRef.current + 1;
+    refreshRequestIdRef.current = requestId;
+    const isCurrent = () => mountedRef.current && refreshRequestIdRef.current === requestId;
+    if (mountedRef.current) setIsRefreshing(true);
+
+    const request = Promise.all([
+      loadResumableState({
+        setHasResumable: value => { if (isCurrent()) setHasResumable(value); },
+        setResumableProgress: value => { if (isCurrent()) setResumableProgress(value); },
+        setHasResumableStudy: value => { if (isCurrent()) setHasResumableStudy(value); },
+        setResumableStudyProgress: value => { if (isCurrent()) setResumableStudyProgress(value); },
+        setPendingCount: value => { if (isCurrent()) setPendingCount(value); },
+        setLocalStateLoaded: value => { if (isCurrent()) setLocalStateLoaded(value); },
+      }),
+      loadStudyPlan({
+        setStudyPlan: value => { if (isCurrent()) setStudyPlan(value); },
+        setStudyPlanError: value => { if (isCurrent()) setStudyPlanError(value); },
+        setStudyPlanLoaded: value => { if (isCurrent()) setStudyPlanLoaded(value); },
+      }),
+    ])
+      .then(() => undefined)
+      .catch(err => console.error('Failed to refresh home state:', err))
+      .finally(() => {
+        refreshInFlightRef.current = null;
+        if (isCurrent()) setIsRefreshing(false);
+      });
+    refreshInFlightRef.current = request;
+    return request;
+  }, []);
 
   useEffect(() => {
-    loadResumableState({
-      setHasResumable,
-      setResumableProgress,
-      setHasResumableStudy,
-      setResumableStudyProgress,
-      setPendingCount,
-      setLocalStateLoaded,
-    }).catch(err => console.error('Failed to check local state:', err));
+    mountedRef.current = true;
+    void refresh();
 
-    loadStudyPlan({
-      setStudyPlan,
-      setStudyPlanError,
-      setStudyPlanLoaded,
-    }).catch(err => console.error('Failed to load study plan:', err));
-  }, []);
+    const handleFocus = () => { void refresh(); };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refresh]);
+
+  const nextDue = studyPlan?.next_review_due_at ?? studyPlan?.next_due;
+  useEffect(() => {
+    if (!nextDue) return;
+    const delay = parseApiDate(nextDue).getTime() - Date.now();
+    if (!Number.isFinite(delay) || delay <= 0) return;
+    const timeoutId = window.setTimeout(() => {
+      void refresh();
+    }, Math.min(delay + 1000, 2_147_483_647));
+    return () => window.clearTimeout(timeoutId);
+  }, [nextDue, refresh]);
 
   return {
     hasResumable,
@@ -53,6 +102,8 @@ export function useHomeStatus() {
     pendingCount,
     studyPlan,
     studyPlanError,
+    isRefreshing,
+    refresh,
     homeStateLoaded: localStateLoaded && studyPlanLoaded,
   };
 }

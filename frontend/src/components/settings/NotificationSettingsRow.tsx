@@ -49,21 +49,23 @@ export function NotificationSettingsRow() {
               <div className="home-setting-label">Discord 複習通知</div>
               <div className="home-setting-description">{discordConfigured ? 'Webhook 已設定' : '尚未設定 Discord Webhook'}</div>
             </div>
-            <button className="btn btn-secondary btn-sm home-compact-action" onClick={saveSettings} disabled={isSaving || !minimumDueCount}>
-              {isSaving ? '儲存中…' : '儲存'}
-            </button>
           </div>
-          <label className="home-notification-threshold">
+          <div className="home-notification-threshold">
             <span className="home-llm-field-label">通知門檻</span>
-            <span className="home-inline-number">
-              待複習題數達到
-              <input className="home-form-control" type="number" min={1} max={1000} value={minimumDueCount} onChange={event => setMinimumDueCount(event.target.value)} />
-              題時通知
+            <span className="home-notification-control">
+              <label className="home-inline-number">
+                待複習題數達到
+                <input className="home-form-control" type="number" min={1} max={1000} value={minimumDueCount} onChange={event => setMinimumDueCount(event.target.value)} />
+                題時通知
+              </label>
+              <button type="button" className="btn btn-secondary btn-sm home-compact-action" onClick={saveSettings} disabled={isSaving || !minimumDueCount}>
+                {isSaving ? '儲存中…' : '儲存'}
+              </button>
             </span>
-          </label>
+          </div>
+          {status && <div aria-live="polite" className="home-reset-status">{status}</div>}
         </div>
       </div>
-      {status && <div aria-live="polite" className="home-reset-status">{status}</div>}
     </>
   );
 }

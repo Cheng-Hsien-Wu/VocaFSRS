@@ -133,6 +133,12 @@ test.describe('Mistakes Export E2E Tests', () => {
     });
 
     const page = context.pages[0] || await context.newPage();
+    const exportPayloads: Record<string, unknown>[] = [];
+    page.on('request', request => {
+      if (request.url().endsWith('/api/v1/exports') && request.method() === 'POST') {
+        exportPayloads.push(request.postDataJSON() as Record<string, unknown>);
+      }
+    });
 
     // 1. Go to homepage
     await page.goto('http://127.0.0.1:5176/');
@@ -185,9 +191,11 @@ test.describe('Mistakes Export E2E Tests', () => {
     // 4. Export Modal flow
     await page.locator('#btn-trigger-export').click();
     await page.waitForTimeout(500);
+    await expect(page.locator('#btn-export-again-2')).toHaveAttribute('aria-pressed', 'true');
+    expect(exportPayloads.at(-1)?.minimum_again_count).toBe(2);
 
     // The public UI exports a NotebookLM-friendly podcast source only.
-    await page.locator('#export-filter-type').selectOption('today');
+    await page.locator('#export-filter-type').selectOption('recent_7_days');
     await page.waitForTimeout(300);
 
     // Preview
@@ -199,6 +207,12 @@ test.describe('Mistakes Export E2E Tests', () => {
     expect(previewVal).toContain('preclude');
     expect(previewVal).toContain('My answer');
     expect(previewVal).toContain('Correct meaning');
+
+    await page.locator('#btn-export-again-5').click();
+    await expect.poll(() => previewArea.inputValue()).not.toContain('preclude');
+    expect(exportPayloads.at(-1)?.minimum_again_count).toBe(5);
+    await page.locator('#btn-export-again-2').click();
+    await expect.poll(() => previewArea.inputValue()).toContain('preclude');
 
     // Copy to clipboard
     await page.locator('#btn-export-copy').click();

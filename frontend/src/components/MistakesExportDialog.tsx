@@ -10,6 +10,13 @@ const LIMIT_OPTIONS = [
   { id: 'custom', value: 'custom', label: '自訂' },
 ];
 
+const AGAIN_OPTIONS = [
+  { value: '2', label: '至少 2 次' },
+  { value: '3', label: '至少 3 次' },
+  { value: '5', label: '至少 5 次' },
+  { value: 'custom', label: '自訂' },
+];
+
 interface MistakesExportDialogProps {
   dialogRef: RefObject<HTMLDivElement | null>;
   closeRef: RefObject<HTMLButtonElement | null>;
@@ -19,6 +26,10 @@ interface MistakesExportDialogProps {
   setLimitType: (value: string) => void;
   customLimit: string;
   setCustomLimit: (value: string) => void;
+  minimumAgainType: string;
+  setMinimumAgainType: (value: string) => void;
+  customMinimumAgain: string;
+  setCustomMinimumAgain: (value: string) => void;
   preview: string;
   isExporting: boolean;
   copyFeedback: string;
@@ -36,6 +47,10 @@ export function MistakesExportDialog({
   setLimitType,
   customLimit,
   setCustomLimit,
+  minimumAgainType,
+  setMinimumAgainType,
+  customMinimumAgain,
+  setCustomMinimumAgain,
   preview,
   isExporting,
   copyFeedback,
@@ -84,10 +99,52 @@ export function MistakesExportDialog({
               onChange={event => setFilterType(event.target.value)}
               className="form-control"
             >
-              <option value="today">今日錯題</option>
-              <option value="recent_7_days">近 7 天錯題 (Again / Hard)</option>
-              <option value="recent_30_days">近 30 天錯題 (Again / Hard)</option>
+              <option value="today">今日反覆答錯</option>
+              <option value="recent_7_days">近 7 天反覆答錯</option>
+              <option value="recent_30_days">近 30 天反覆答錯</option>
             </select>
+          </div>
+
+          <div>
+            <div className="form-label">反覆答錯門檻</div>
+            <div
+              role="group"
+              aria-label="Podcast 最低 Again 次數"
+              className="export-limit-options"
+            >
+              {AGAIN_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  id={`btn-export-again-${option.value}`}
+                  type="button"
+                  aria-pressed={minimumAgainType === option.value}
+                  onClick={() => setMinimumAgainType(option.value)}
+                  className="export-limit-option"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {minimumAgainType === 'custom' && (
+              <div>
+                <label htmlFor="export-custom-again-input" className="sr-only">
+                  最低 Again 次數
+                </label>
+                <input
+                  type="number"
+                  id="export-custom-again-input"
+                  name="exportCustomAgain"
+                  value={customMinimumAgain}
+                  onChange={event => setCustomMinimumAgain(event.target.value)}
+                  autoComplete="off"
+                  inputMode="numeric"
+                  min={1}
+                  max={1000}
+                  className="form-control export-custom-limit"
+                />
+              </div>
+            )}
+            <div className="export-filter-help">只匯出在所選期間內 Again 達門檻的單字，即使後來已答對也會保留。</div>
           </div>
 
           <div>

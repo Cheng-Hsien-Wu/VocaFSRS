@@ -26,6 +26,7 @@ class MistakeQuery:
     deck_id: str | None = None
     rating: str | None = None
     repeated_lapses: bool = False
+    minimum_again_count: int | None = None
     page: int | None = None
     limit: int | None = None
     sort_by: Literal["recent", "severity"] = "recent"
@@ -164,15 +165,17 @@ def _base_mistakes_query(query: MistakeQuery):
     if query.deck_id:
         stmt = stmt.join(DeckCard, DeckCard.card_id == Card.id).where(DeckCard.deck_id == query.deck_id)
 
-    visibility_filters = []
-    if query.rating == "Again":
-        visibility_filters.append(latest_log_alias.rating == 1)
-    elif query.rating == "Hard":
-        visibility_filters.append(latest_log_alias.rating == 2)
+    if query.minimum_again_count is not None:
+        stmt = stmt.where(logs_agg.c.again_count >= query.minimum_again_count)
     else:
-        visibility_filters.extend([latest_log_alias.rating == 1, latest_log_alias.rating == 2])
-
-    stmt = stmt.where(or_(*visibility_filters))
+        visibility_filters = []
+        if query.rating == "Again":
+            visibility_filters.append(latest_log_alias.rating == 1)
+        elif query.rating == "Hard":
+            visibility_filters.append(latest_log_alias.rating == 2)
+        else:
+            visibility_filters.extend([latest_log_alias.rating == 1, latest_log_alias.rating == 2])
+        stmt = stmt.where(or_(*visibility_filters))
     if query.repeated_lapses:
         stmt = stmt.where(ReviewState.lapses >= 2)
 

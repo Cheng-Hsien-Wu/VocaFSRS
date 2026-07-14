@@ -348,6 +348,13 @@
   font-size: var(--text-xs);
 }
 
+.export-filter-help {
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
 .export-preview {
   height: 220px;
   padding: var(--space-2);

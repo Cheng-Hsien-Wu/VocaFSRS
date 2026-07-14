@@ -2,7 +2,7 @@ import io
 import csv
 import json
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -29,6 +29,7 @@ class ExportRequest(BaseModel):
     filter_type: str
     deck_id: Optional[str] = None
     limit: Optional[int] = None
+    minimum_again_count: Optional[int] = Field(default=None, ge=1, le=1000)
     format: str
 
 
@@ -132,6 +133,7 @@ async def export_data(data: ExportRequest, db: AsyncSession = Depends(get_db)):
             end_date=end_date,
             deck_id=deck_filter_id,
             limit=data.limit,
+            minimum_again_count=data.minimum_again_count,
             sort_by="recent" if data.filter_type == "today" else "severity",
         ),
     )

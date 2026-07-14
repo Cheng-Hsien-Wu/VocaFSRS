@@ -459,7 +459,7 @@ export const api = {
   },
 
   // Export API
-  async exportData(params: { filterType: string; deckId?: string | null; limit?: number | null; format: string }) {
+  async exportData(params: { filterType: string; deckId?: string | null; limit?: number | null; minimumAgainCount?: number | null; format: string }) {
     const res = await fetch('/api/v1/exports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -467,6 +467,7 @@ export const api = {
         filter_type: params.filterType,
         deck_id: params.deckId,
         limit: params.limit,
+        minimum_again_count: params.minimumAgainCount,
         format: params.format
       })
     });

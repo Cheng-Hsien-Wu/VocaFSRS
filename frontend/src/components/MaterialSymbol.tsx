@@ -5,6 +5,7 @@ type MaterialSymbolName =
   | 'check_circle'
   | 'chevron_right'
   | 'close'
+  | 'refresh'
   | 'upload_file'
   | 'volume_off'
   | 'volume_up';
