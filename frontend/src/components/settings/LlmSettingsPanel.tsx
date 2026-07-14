@@ -253,7 +253,6 @@ export function LlmSettingsPanel() {
                   <label className="home-llm-field">
                     <span>主要模型</span>
                     <input className="home-form-control" value={draft.model} onChange={event => updateDraft({ model: event.target.value })} placeholder={effectiveModel} />
-                    {effectiveModel && <small className="home-setting-description">實際模型：{effectiveModel}</small>}
                   </label>
                 )}
               </div>

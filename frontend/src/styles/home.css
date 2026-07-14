@@ -43,6 +43,8 @@
 .home-refresh-button {
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
   margin: -10px -10px -10px 0;
   padding: 0;
   border: 0;
@@ -52,6 +54,7 @@
   cursor: pointer;
   display: grid;
   place-items: center;
+  overflow: hidden;
   transition: background-color var(--duration-fast) var(--ease-out),
               color var(--duration-fast) var(--ease-out);
 }
@@ -67,6 +70,10 @@
 
 .home-refresh-icon-active {
   animation: home-refresh-spin 0.8s linear infinite;
+}
+
+.home-refresh-button .material-symbol {
+  --material-symbol-size: 22px;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -480,8 +487,10 @@
 }
 
 .home-compact-action {
+  flex: 0 0 auto;
   min-height: 32px;
   padding: 5px var(--space-3);
+  white-space: nowrap;
 }
 
 .home-notification-panel {
@@ -507,7 +516,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .home-llm-field-label {
@@ -588,17 +597,24 @@
   }
 
   .home-notification-threshold {
-    align-items: stretch;
-    flex-direction: column;
-    gap: var(--space-2);
+    align-items: center;
+    flex-direction: row;
+    gap: var(--space-3);
   }
 
   .home-notification-control {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    min-width: 0;
   }
 
   .home-inline-number {
-    flex-wrap: wrap;
+    flex: 0 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+
+  .home-inline-number .home-form-control {
+    width: 68px;
   }
 }

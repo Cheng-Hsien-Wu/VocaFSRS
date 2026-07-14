@@ -53,14 +53,22 @@ test('settings supports ordered models and uses consistent notification actions'
   const routes = llmPanel.locator('.home-llm-route');
   await expect(routes).toHaveCount(3);
   await expect(llmPanel.locator('.home-llm-current')).toHaveCount(0);
+  await expect(llmPanel.getByText(/實際模型：/)).toHaveCount(0);
 
   await llmPanel.getByRole('button', { name: '將備援模型 2 上移' }).click();
   await expect(routes.nth(0).locator('input')).toHaveValue('anthropic/claude-3.5-haiku');
+  const addButton = llmPanel.getByRole('button', { name: '新增' });
+  await expect(addButton).toHaveCSS('white-space', 'nowrap');
 
   const notificationPanel = page.locator('.home-notification-panel');
-  await expect(notificationPanel).toContainText('待複習題數達到');
+  await expect(notificationPanel).toContainText('待複習達到');
   await expect(notificationPanel.locator('.material-symbol')).toHaveCount(0);
-  await expect(notificationPanel.locator('.home-notification-control').getByRole('button', { name: '儲存' })).toBeVisible();
+  const notificationSave = notificationPanel.locator('.home-notification-control').getByRole('button', { name: '儲存' });
+  await expect(notificationSave).toBeVisible();
+  const [panelBox, saveBox] = await Promise.all([notificationPanel.boundingBox(), notificationSave.boundingBox()]);
+  expect(panelBox).not.toBeNull();
+  expect(saveBox).not.toBeNull();
+  expect(saveBox!.width).toBeLessThan(panelBox!.width / 2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

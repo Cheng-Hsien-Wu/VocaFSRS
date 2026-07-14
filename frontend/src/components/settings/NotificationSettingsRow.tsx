@@ -51,12 +51,11 @@ export function NotificationSettingsRow() {
             </div>
           </div>
           <div className="home-notification-threshold">
-            <span className="home-llm-field-label">通知門檻</span>
+            <span className="home-llm-field-label">待複習達到</span>
             <span className="home-notification-control">
               <label className="home-inline-number">
-                待複習題數達到
                 <input className="home-form-control" type="number" min={1} max={1000} value={minimumDueCount} onChange={event => setMinimumDueCount(event.target.value)} />
-                題時通知
+                <span>題</span>
               </label>
               <button type="button" className="btn btn-secondary btn-sm home-compact-action" onClick={saveSettings} disabled={isSaving || !minimumDueCount}>
                 {isSaving ? '儲存中…' : '儲存'}

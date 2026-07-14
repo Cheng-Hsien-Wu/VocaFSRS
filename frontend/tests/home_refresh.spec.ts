@@ -51,14 +51,17 @@ test('home refreshes its data without reloading or navigating', async ({ page })
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.home-status-strip').getByText('1', { exact: true })).toBeVisible();
+  const refreshButton = page.getByRole('button', { name: '更新首頁狀態' });
+  await expect(refreshButton).toHaveCSS('width', '44px');
+  await expect(refreshButton).toHaveCSS('height', '44px');
 
   dueCount = 7;
   const requestsBeforeClick = planRequests;
-  await page.getByRole('button', { name: '更新首頁狀態' }).click();
+  await refreshButton.click();
   await expect.poll(() => planRequests).toBeGreaterThan(requestsBeforeClick);
   await expect(page.locator('.home-status-strip').getByText('7', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('button', { name: '更新首頁狀態' })).toBeEnabled();
+  await expect(refreshButton).toBeEnabled();
 
   dueCount = 8;
   const requestsBeforeFocus = planRequests;
@@ -67,7 +70,7 @@ test('home refreshes its data without reloading or navigating', async ({ page })
   await expect(page.locator('.home-status-strip').getByText('8', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
 
-  await expect(page.getByRole('button', { name: '更新首頁狀態' })).toBeEnabled();
+  await expect(refreshButton).toBeEnabled();
   dueCount = 9;
   const requestsBeforeVisibility = planRequests;
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
