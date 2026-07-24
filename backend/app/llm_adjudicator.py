@@ -172,38 +172,6 @@ def _post_json(url: str, headers: dict[str, str], body: dict[str, Any], timeout:
     raise AssertionError("HTTP retry loop exhausted")
 
 
-def _adjudication_json_schema_response_format() -> dict[str, Any]:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "vocabulary_adjudication",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "properties": {
-                                "id": {"type": "string"},
-                                "verdict": {"type": "string", "enum": ["correct", "partial", "incorrect"]},
-                                "rating": {"type": "string", "enum": ["Good", "Hard", "Again"]},
-                                "reason": {"type": "string"},
-                                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                            },
-                            "required": ["id", "verdict", "rating", "reason", "confidence"],
-                        },
-                    }
-                },
-                "required": ["results"],
-            },
-        },
-    }
-
-
 def _default_runtime_config() -> LlmRuntimeConfig:
     provider = os.getenv("LLM_PROVIDER", "auto").strip() or "auto"
     return LlmRuntimeConfig(
@@ -298,8 +266,7 @@ def _call_openrouter_batch(
         {
             "model": model,
             "temperature": 0,
-            "provider": {"require_parameters": True},
-            "response_format": _adjudication_json_schema_response_format(),
+            "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout,
