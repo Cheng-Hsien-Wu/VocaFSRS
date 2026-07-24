@@ -107,7 +107,7 @@ export function LlmSettingsPanel() {
     updateDraft({
       provider,
       model: '',
-      baseUrl: provider === 'openai_compatible' ? DEFAULT_OPENAI_COMPATIBLE_BASE_URL : '',
+      baseUrl: '',
       apiKey: providersShareLocalKey(draft.provider, provider) ? draft.apiKey : '',
       fallbackRoutes,
     });
@@ -322,7 +322,7 @@ export function LlmSettingsPanel() {
                 <div className="home-llm-grid home-llm-advanced-grid">
                   {draft.provider === 'openai_compatible' && (
                     <label className="home-llm-field home-llm-field-wide">
-                      <span>Base URL</span>
+                      <span>Base URL（留空預設為 Gemini：{DEFAULT_OPENAI_COMPATIBLE_BASE_URL}）</span>
                       <input className="home-form-control" value={draft.baseUrl} onChange={event => updateDraft({ baseUrl: event.target.value })} placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL} />
                     </label>
                   )}
