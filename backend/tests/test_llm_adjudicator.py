@@ -17,7 +17,7 @@ from app.llm_adjudicator import (
 from app.services.llm_settings import LlmRoute, LlmRuntimeConfig
 
 
-def test_openrouter_uses_json_object_response_format(monkeypatch):
+def test_openrouter_omits_response_format(monkeypatch):
     seen = {}
 
     def fake_post_json(url, headers, body, timeout):
@@ -53,7 +53,7 @@ def test_openrouter_uses_json_object_response_format(monkeypatch):
     assert seen["headers"]["Authorization"] == "Bearer test-key"
     assert seen["timeout"] == 9
     assert "provider" not in seen["body"]
-    assert seen["body"]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in seen["body"]
     assert results[0]["id"] == "item-1"
     assert provider == "openrouter"
     assert model == "tencent/hy3"

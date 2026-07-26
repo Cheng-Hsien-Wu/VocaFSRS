@@ -96,7 +96,8 @@ def _batch_prompt(items: list[AdjudicationItem]) -> str:
         "verdict must be one of correct, partial, incorrect. "
         "rating must be Good for correct, Hard for partial, Again for incorrect. "
         "confidence must be a number from 0 to 1. "
-        "Preserve each input id exactly.\n\n"
+        "Preserve each input id exactly. "
+        "Respond with the raw JSON object only: no markdown code fences, no explanation before or after it.\n\n"
         f"Items:\n{json.dumps(rows, ensure_ascii=False)}"
     )
 
@@ -266,7 +267,6 @@ def _call_openrouter_batch(
         {
             "model": model,
             "temperature": 0,
-            "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout,
