@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app import d3_adjudicator as d3
+from app import decision_adjudicator as d3
 from app.constants import DEFAULT_D3_MODEL
 from app.llm_adjudicator import AdjudicationItem, AdjudicationUnavailable, PartialAdjudicationUnavailable, adjudicate_answers
 from app.services.llm_settings import LlmRuntimeConfig
@@ -38,10 +38,10 @@ def test_native_choice_maps_semantics_separately_from_fsrs(monkeypatch, choice, 
         return response(choice)
 
     monkeypatch.setattr(d3, "_post_json", post)
-    result = d3.adjudicate_d3_answer(AdjudicationItem("item-a", "invoice", "發票", "發票"), runtime())
+    result = d3.adjudicate_decision_answer(AdjudicationItem("item-a", "invoice", "發票", "發票"), runtime())
     assert (result.verdict, result.rating, result.provider) == (verdict, rating, "d3")
     assert result.confidence == .9
-    assert result.model == f"{DEFAULT_D3_MODEL}@test-revision/{d3.D3_POLICY_VERSION}"
+    assert result.model == f"{DEFAULT_D3_MODEL}@test-revision/{d3.DECISION_POLICY_VERSION}"
     assert seen["url"] == "https://decision.vllm-sr.ai/v1/systemone"
     assert seen["headers"]["Authorization"] == "Bearer test-secret"
     assert seen["timeout"] == 9
@@ -70,7 +70,7 @@ def test_invalid_provider_response_never_becomes_a_grade(monkeypatch, mutation):
         answer["choice"] = "Again"
     monkeypatch.setattr(d3, "_post_json", lambda *args: raw)
     with pytest.raises(AdjudicationUnavailable):
-        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "答案"), runtime())
+        d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "答案"), runtime())
 
 
 def test_provider_error_redacts_key(monkeypatch):
@@ -79,7 +79,7 @@ def test_provider_error_redacts_key(monkeypatch):
 
     monkeypatch.setattr(d3, "_post_json", failed)
     with pytest.raises(AdjudicationUnavailable) as caught:
-        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "答案"), runtime())
+        d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "答案"), runtime())
     assert "test-secret" not in str(caught.value)
 
 
@@ -130,7 +130,7 @@ def test_backup_key_retries_same_payload_only_after_failure(monkeypatch):
         return response()
 
     monkeypatch.setattr(d3, "_post_json", post)
-    result = d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    result = d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
     assert result.rating == "Good"
     assert [call[0] for call in calls] == ["Bearer test-secret", "Bearer backup-secret"]
     assert calls[0][1] == calls[1][1]
@@ -147,7 +147,7 @@ def test_exhausted_keys_are_redacted_and_duplicates_not_retried(monkeypatch, bac
 
     monkeypatch.setattr(d3, "_post_json", post)
     with pytest.raises(AdjudicationUnavailable) as caught:
-        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+        d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
     assert len(calls) == (2 if backup == "backup-secret" else 1)
     assert "test-secret" not in str(caught.value)
     if backup:
@@ -168,8 +168,8 @@ def test_no_backup_call_after_success_or_invalid_response(monkeypatch, valid):
 
     monkeypatch.setattr(d3, "_post_json", post)
     if valid:
-        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+        d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
     else:
         with pytest.raises(AdjudicationUnavailable):
-            d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+            d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
     assert len(calls) == 1

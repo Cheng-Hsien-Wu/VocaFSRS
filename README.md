@@ -70,7 +70,16 @@ At the vocabulary import prompt, enter either an absolute path or a path relativ
 
 The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an API key. The installer accepts a D3 key first; leaving it blank offers the existing LLM providers. Local environment settings are stored in `backend/.env`; do not share that file. Restart the server after changing it. Settings saved in the web interface take precedence over environment defaults.
 
-For D3, use the homepage grading settings to select **D3 Decision API**, enter the key under connection settings, and save/test. An environment-based installation can instead use `LLM_PROVIDER=d3` and `D3_API_KEY=your-key` in `backend/.env`. Optionally set `D3_BACKUP_API_KEY` there: if the primary request fails, the backend tries that key once with the same model and grading instructions. Invalid grading responses are rejected, not retried with another key. Restart after changing environment settings. D3 uses one term per request and does not fall back to an LLM. The service receives the term, reference meaning, part of speech, and typed answer; its [data-retention notice](https://decision.vllm-sr.ai/) states that requests and responses may be logged.
+In homepage grading settings, select **Decision Model** or **LLM**, then choose the service and model. Decision models currently support **vLLM-SR / D3-turbo** and **Cloudflare Workers AI / CLEF**, sharing the same semantic grading rules. They process one term per request and never fall back to an LLM or another model. Enter the API key under connection settings, then save/test. Cloudflare also requires a 32-character Account ID.
+
+Environment-based installations can configure one of these providers in `backend/.env`:
+
+| Provider | Settings | Optional Backup Key |
+| --- | --- | --- |
+| vLLM-SR | `LLM_PROVIDER=d3`, `D3_API_KEY` | `D3_BACKUP_API_KEY` |
+| Cloudflare | `LLM_PROVIDER=cloudflare`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_BACKUP_API_TOKEN` |
+
+Backup keys are configured only in `.env`. If the primary request fails, the backend tries the backup once with the same model and grading instructions. Invalid grading responses are rejected, not retried with another key. Restart after changing environment settings. Each service receives the term, reference meaning, part of speech, and typed answer. Review its data policy before use: [vLLM-SR](https://decision.vllm-sr.ai/privacy) or [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/platform/data-usage/). CLEF does not return the same revision metadata as D3, so its stored provenance identifies the model and our grading-policy version, not an immutable provider revision.
 
 Discord reminders are sent only while the VocaFSRS server is running.
 

@@ -1,18 +1,19 @@
-"""D3's native choice API, kept separate from generated-JSON LLM transports."""
+"""Native decision APIs sharing a rubric, key retry, and choice validation."""
 import json
 import math
 import os
 import threading
 import time
 
-from app.constants import DEFAULT_D3_MODEL
+from app.constants import DECISION_MODELS
 from app.config import settings
 from app.llm_adjudicator import AdjudicationItem, AdjudicationResult, AdjudicationUnavailable, _normalize, _post_json
 from app.services.llm_settings import LlmRuntimeConfig, _env_api_key
+from app.schemas import validate_cloudflare_url
 
 D3_API_URL = "https://decision.vllm-sr.ai/v1/systemone"
-D3_POLICY_VERSION = "bare-word-v1"
-D3_INSTRUCTIONS = (
+DECISION_POLICY_VERSION = "bare-word-v1"
+DECISION_INSTRUCTIONS = (
     "Assess semantic recall of an English word or phrase expressed in Chinese. "
     "The learner saw only the word/phrase, not a disambiguating sentence or a reliable visible part-of-speech cue. "
     "The reference is useful guidance, NOT an exhaustive answer key or a hidden sense restriction. "
@@ -33,7 +34,7 @@ D3_INSTRUCTIONS = (
 )
 # Choice labels preserve the evaluated API rubric; Hard here is semantic partial
 # credit, NOT the FSRS rating. _normalize owns that separate mapping.
-D3_CRITERIA = {
+DECISION_CRITERIA = {
     "Again": "Unknown/blank, unrelated or unsupported meaning, essential negation/semantic roles reversed, or no valid meaning recalled. Mere topical association is insufficient.",
     "Good": "A complete core of at least one established sense of the displayed word/phrase is recalled, in natural concise Chinese or a recognizable harmless typo, without a materially false addition. One meaning suffices. The reference need not match literally.",
     "Hard": "A genuine target component is recalled but the answer remains materially incomplete or too vague, or a correct meaning is mixed with a genuinely false extra meaning. Not for missing synonyms, Chinese suffixes, harmless typos, or a valid alternate sense.",
@@ -44,21 +45,32 @@ _request_lock = threading.Lock()
 _next_request_at = 0.0
 
 
-def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> AdjudicationResult:
-    key = runtime.api_key or _env_api_key("d3")
+def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> AdjudicationResult:
+    provider = runtime.provider
+    if provider not in DECISION_MODELS:
+        raise AdjudicationUnavailable("Unsupported decision provider")
+    key = runtime.api_key or _env_api_key(provider)
     if not key:
-        raise AdjudicationUnavailable("D3_API_KEY is not configured")
-    backup = (os.getenv("D3_BACKUP_API_KEY", settings.d3_backup_api_key or "")).strip()
+        raise AdjudicationUnavailable("Decision API key is not configured")
+    env_name, default_backup = ("D3_BACKUP_API_KEY", settings.d3_backup_api_key) if provider == "d3" else ("CLOUDFLARE_BACKUP_API_TOKEN", settings.cloudflare_backup_api_token)
+    backup = os.getenv(env_name, default_backup or "").strip()
     keys = list(dict.fromkeys(candidate for candidate in (key, backup) if candidate))
-    model = runtime.model or DEFAULT_D3_MODEL
-    if model != DEFAULT_D3_MODEL:
-        raise AdjudicationUnavailable("Unsupported D3 model")
+    model = runtime.model or DECISION_MODELS[provider]
+    if model != DECISION_MODELS[provider]:
+        raise AdjudicationUnavailable("Unsupported decision model")
+    url = D3_API_URL
+    if provider == "cloudflare":
+        try:
+            url = validate_cloudflare_url(runtime.base_url or "")
+        except ValueError:
+            raise AdjudicationUnavailable("Configure the Cloudflare account endpoint before grading") from None
     payload = {
         "model": model,
         "state": json.dumps({"word": item.word, "part_of_speech": item.part_of_speech, "reference_meaning": item.expected, "learner_answer": item.typed}, ensure_ascii=False),
-        "questions": {"grade": {"type": "choice", "instructions": D3_INSTRUCTIONS, "criteria": D3_CRITERIA}},
-        "options": {"return_meta": True},
+        "questions": {"grade": {"type": "choice", "instructions": DECISION_INSTRUCTIONS, "criteria": DECISION_CRITERIA}},
     }
+    if provider == "d3":
+        payload["options"] = {"return_meta": True}
     global _next_request_at
     # One process-wide lane also bounds overlapping sessions/settings tests.
     # 429 responses still fail safely; this is not a promise of provider quota.
@@ -67,7 +79,9 @@ def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> A
             time.sleep(max(0.0, _next_request_at - time.monotonic()))
             _next_request_at = time.monotonic() + 1.0
             try:
-                response = _post_json(D3_API_URL, {"Authorization": f"Bearer {candidate}", "Content-Type": "application/json"}, payload, runtime.timeout_seconds)
+                response = _post_json(url, {"Authorization": f"Bearer {candidate}", "Content-Type": "application/json"}, payload, runtime.timeout_seconds)
+                if provider == "cloudflare" and response.get("success") is not True:
+                    raise AdjudicationUnavailable("Cloudflare Decision API reported failure")
                 break
             except AdjudicationUnavailable as exc:
                 if index + 1 < len(keys):
@@ -77,10 +91,17 @@ def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> A
                     message = message.replace(secret, "[REDACTED]")
                 raise AdjudicationUnavailable(message) from None
     try:
-        meta = response["meta"]
-        revision = meta["revision"]
-        if response["model"] != model or meta["model_id"] != model or not isinstance(revision, str) or not revision or len(revision) > 128:
-            raise ValueError("model metadata")
+        if provider == "cloudflare":
+            response = response["result"]
+            provenance = f"@cf/cloudflare/{model}/{DECISION_POLICY_VERSION}"
+        else:
+            meta = response["meta"]
+            revision = meta["revision"]
+            if meta["model_id"] != model or not isinstance(revision, str) or not revision or len(revision) > 128:
+                raise ValueError("model metadata")
+            provenance = f"{model}@{revision}/{DECISION_POLICY_VERSION}"
+        if response["model"] != model:
+            raise ValueError("model")
         if set(response["answers"]) != {"grade"}:
             raise ValueError("question ids")
         answer = response["answers"]["grade"]
@@ -93,7 +114,7 @@ def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> A
         if abs(sum(probabilities.values()) - 1) > .002 or probabilities[choice] + .001 < max(probabilities.values()):
             raise ValueError("choice distribution")
     except (KeyError, TypeError, ValueError, AttributeError):
-        raise AdjudicationUnavailable("D3 returned an invalid choice or model revision; no grade was applied") from None
+        raise AdjudicationUnavailable("Decision API returned an invalid choice or model metadata; no grade was applied") from None
     verdict = _VERDICTS[choice]
-    # D3 does not generate item-specific explanations. Do not invent one.
-    return _normalize({"verdict": verdict, "confidence": probabilities[choice], "reason": _FEEDBACK[verdict]}, "d3", f"{model}@{revision}/{D3_POLICY_VERSION}")
+    # Decision APIs do not generate item-specific explanations. Do not invent one.
+    return _normalize({"verdict": verdict, "confidence": probabilities[choice], "reason": _FEEDBACK[verdict]}, provider, provenance)

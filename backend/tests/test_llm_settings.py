@@ -110,6 +110,13 @@ async def test_llm_settings_round_trip_does_not_return_secret(client: AsyncClien
             "effective_model": "vllm-sr/d3-turbo",
             "fallback_available": False,
         },
+        {
+            "provider": "cloudflare",
+            "api_key_configured": False,
+            "api_key_source": "none",
+            "effective_model": "clef",
+            "fallback_available": False,
+        },
     ]
     assert "api_key" not in body
 
@@ -269,4 +276,29 @@ async def test_switch_to_d3_clears_old_key_and_disables_fallbacks(client, monkey
     {"provider": "openrouter", "fallback_routes": [{"provider": "d3", "model": "vllm-sr/d3-turbo"}]},
 ])
 async def test_d3_rejects_unvalidated_models_or_fallbacks(client, payload):
+    assert (await client.put("/api/v1/llm-settings", json=payload)).status_code == 422
+
+
+async def test_cloudflare_settings_clear_cross_provider_key(client, monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-env-secret")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
+    await client.put("/api/v1/llm-settings", json={"provider": "d3", "api_key": "old-d3-key"})
+    result = await client.put("/api/v1/llm-settings", json={"provider": "cloudflare"})
+    assert result.status_code == 200
+    data = result.json()
+    assert data["effective_model"] == "clef"
+    assert data["base_url"] == "https://api.cloudflare.com/client/v4/accounts/" + "a" * 32 + "/ai/run/@cf/cloudflare/clef"
+    assert data["api_key_source"] == "environment"
+    assert data["batch_size"] == data["max_concurrency"] == 1
+    assert data["fallback_routes"] == []
+    assert "cf-env-secret" not in result.text
+
+
+@pytest.mark.parametrize("payload", [
+    {"provider": "cloudflare", "model": "clef-flash"},
+    {"provider": "cloudflare", "base_url": "https://evil.example"},
+    {"provider": "cloudflare", "fallback_routes": [{"provider": "d3", "model": "vllm-sr/d3-turbo"}]},
+    {"provider": "openrouter", "fallback_routes": [{"provider": "cloudflare", "model": "clef"}]},
+])
+async def test_cloudflare_settings_reject_unsupported_routes(client, payload):
     assert (await client.put("/api/v1/llm-settings", json=payload)).status_code == 422

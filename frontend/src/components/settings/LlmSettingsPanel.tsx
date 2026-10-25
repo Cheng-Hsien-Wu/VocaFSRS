@@ -12,12 +12,17 @@ import {
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const MAX_FALLBACK_ROUTES = 5;
 const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
-  { value: 'd3', label: 'D3 Decision API' },
+  { value: 'd3', label: 'vLLM-SR' },
+  { value: 'cloudflare', label: 'Cloudflare Workers AI' },
   { value: 'auto', label: '自動選擇' },
   { value: 'gemini', label: 'Gemini Native' },
   { value: 'openai_compatible', label: 'OpenAI-compatible' },
   { value: 'openrouter', label: 'OpenRouter' },
 ];
+
+function isDecisionProvider(provider: LlmProvider) {
+  return provider === 'd3' || provider === 'cloudflare';
+}
 
 interface LlmSettingsDraft {
   provider: LlmProvider;
@@ -85,7 +90,7 @@ export function LlmSettingsPanel() {
   const effectiveModel = draft?.model.trim() || providerReadiness?.effective_model || '';
   const fallbackProviderOptions = useMemo(() => {
     if (!settings || !draft || draft.provider === 'auto') return [];
-    return settings.provider_readiness.filter(item => item.provider !== 'd3' && (
+    return settings.provider_readiness.filter(item => !isDecisionProvider(item.provider) && (
       item.fallback_available
       || item.provider === draft.provider
       || draft.fallbackRoutes.some(route => route.provider === item.provider)
@@ -97,7 +102,7 @@ export function LlmSettingsPanel() {
 
   function selectProvider(provider: LlmProvider) {
     if (!draft) return;
-    const fallbackRoutes = provider === 'auto' || provider === 'd3'
+    const fallbackRoutes = provider === 'auto' || isDecisionProvider(provider)
       ? []
       : draft.fallbackRoutes.filter(route => (
         route.provider === provider
@@ -163,7 +168,7 @@ export function LlmSettingsPanel() {
     return {
       provider: draft.provider,
       model: draft.provider === 'auto' ? null : draft.model.trim() || null,
-      base_url: draft.provider === 'openai_compatible' ? draft.baseUrl.trim() || null : null,
+      base_url: draft.provider === 'openai_compatible' || draft.provider === 'cloudflare' ? draft.baseUrl.trim() || null : null,
       api_key: draft.apiKey.trim() || null,
       clear_api_key: Boolean(
         settings?.api_key_source === 'local'
@@ -171,9 +176,9 @@ export function LlmSettingsPanel() {
         && !draft.apiKey.trim()
       ),
       timeout_seconds: Number(draft.timeoutSeconds),
-      fallback_routes: draft.provider === 'auto' || draft.provider === 'd3' ? [] : fallbackRoutes,
-      batch_size: draft.provider === 'd3' ? 1 : Number(draft.batchSize),
-      max_concurrency: draft.provider === 'd3' ? 1 : Number(draft.maxConcurrency),
+      fallback_routes: draft.provider === 'auto' || isDecisionProvider(draft.provider) ? [] : fallbackRoutes,
+      batch_size: isDecisionProvider(draft.provider) ? 1 : Number(draft.batchSize),
+      max_concurrency: isDecisionProvider(draft.provider) ? 1 : Number(draft.maxConcurrency),
     };
   }
 
@@ -243,9 +248,16 @@ export function LlmSettingsPanel() {
             <>
               <div className="home-llm-grid">
                 <label className="home-llm-field">
+                  <span>批改方式</span>
+                  <select className="home-form-control" value={isDecisionProvider(draft.provider) ? 'decision' : 'llm'} onChange={event => selectProvider(event.target.value === 'decision' ? 'd3' : 'auto')}>
+                    <option value="decision">Decision Model</option>
+                    <option value="llm">LLM</option>
+                  </select>
+                </label>
+                <label className="home-llm-field">
                   <span>主要服務</span>
                   <select className="home-form-control" value={draft.provider} onChange={event => selectProvider(event.target.value as LlmProvider)}>
-                    {PROVIDER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {PROVIDER_OPTIONS.filter(option => isDecisionProvider(option.value) === isDecisionProvider(draft.provider)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </label>
                 {draft.provider === 'auto' ? (
@@ -256,12 +268,16 @@ export function LlmSettingsPanel() {
                 ) : (
                   <label className="home-llm-field">
                     <span>主要模型</span>
-                    <input className="home-form-control" value={draft.provider === 'd3' ? effectiveModel : draft.model} readOnly={draft.provider === 'd3'} onChange={event => updateDraft({ model: event.target.value })} placeholder={effectiveModel} />
+                    {isDecisionProvider(draft.provider) ? (
+                      <select className="home-form-control" value={effectiveModel} onChange={event => updateDraft({ model: event.target.value })}>
+                        <option value={effectiveModel}>{effectiveModel}</option>
+                      </select>
+                    ) : <input className="home-form-control" value={draft.model} onChange={event => updateDraft({ model: event.target.value })} placeholder={effectiveModel} />}
                   </label>
                 )}
               </div>
 
-              {draft.provider !== 'auto' && draft.provider !== 'd3' && (
+              {draft.provider !== 'auto' && !isDecisionProvider(draft.provider) && (
                 <fieldset className="home-llm-fallback">
                   <legend>備援模型</legend>
                   <div className="home-llm-fallback-header">
@@ -324,6 +340,12 @@ export function LlmSettingsPanel() {
               <details className="home-llm-advanced">
                 <summary><span>連線設定</span><MaterialSymbol name="chevron_right" /></summary>
                 <div className="home-llm-grid home-llm-advanced-grid">
+                  {draft.provider === 'cloudflare' && (
+                    <label className="home-llm-field home-llm-field-wide">
+                      <span>Cloudflare Account ID</span>
+                      <input className="home-form-control" name="cloudflare-account-id" autoComplete="off" spellCheck={false} value={draft.baseUrl.split('/accounts/')[1]?.split('/')[0] ?? ''} onChange={event => updateDraft({ baseUrl: event.target.value.trim() ? `https://api.cloudflare.com/client/v4/accounts/${event.target.value.trim()}/ai/run/@cf/cloudflare/clef` : '' })} placeholder="32 位 Account ID…" />
+                    </label>
+                  )}
                   {draft.provider === 'openai_compatible' && (
                     <label className="home-llm-field home-llm-field-wide">
                       <span>Base URL（留空預設為 Gemini：{DEFAULT_OPENAI_COMPATIBLE_BASE_URL}）</span>
@@ -335,8 +357,8 @@ export function LlmSettingsPanel() {
                     <input className="home-form-control" type="password" value={draft.apiKey} onChange={event => updateDraft({ apiKey: event.target.value })} placeholder="保留現有 key" />
                   </label>
                   <NumberField label="Timeout（秒）" value={draft.timeoutSeconds} min={5} max={180} onChange={value => updateDraft({ timeoutSeconds: value })} />
-                  {draft.provider !== 'd3' && <NumberField label="每批題數" value={draft.batchSize} min={1} max={50} onChange={value => updateDraft({ batchSize: value })} />}
-                  {draft.provider !== 'd3' && <NumberField label="同時請求" value={draft.maxConcurrency} min={1} max={4} onChange={value => updateDraft({ maxConcurrency: value })} />}
+                  {!isDecisionProvider(draft.provider) && <NumberField label="每批題數" value={draft.batchSize} min={1} max={50} onChange={value => updateDraft({ batchSize: value })} />}
+                  {!isDecisionProvider(draft.provider) && <NumberField label="同時請求" value={draft.maxConcurrency} min={1} max={4} onChange={value => updateDraft({ maxConcurrency: value })} />}
                 </div>
               </details>
             </>

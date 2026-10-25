@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.config import settings
-from app.constants import APP_NAME, RECALL_RATING_BY_VERDICT
+from app.constants import APP_NAME, DECISION_MODELS, RECALL_RATING_BY_VERDICT
 from app.services.llm_settings import (
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENROUTER_MODEL,
@@ -427,16 +427,16 @@ async def adjudicate_answers(
         })
         return results
 
-    if runtime_config.provider == "d3":
-        from app.d3_adjudicator import adjudicate_d3_answer
+    if runtime_config.provider in DECISION_MODELS:
+        from app.decision_adjudicator import adjudicate_decision_answer
 
-        # D3 uses one independent state per answer. Stop after a provider failure
+        # Decision APIs use one independent state per answer. Stop after a provider failure
         # instead of spending the remainder of a session on a failed service.
         for index, item in enumerate(remote_items):
             try:
-                result = await asyncio.to_thread(adjudicate_d3_answer, item, runtime_config)
-                if any(previous.provider == "d3" and previous.model != result.model for previous in results.values()):
-                    raise AdjudicationUnavailable("D3 model revision changed during grading")
+                result = await asyncio.to_thread(adjudicate_decision_answer, item, runtime_config)
+                if any(previous.provider == runtime_config.provider and previous.model != result.model for previous in results.values()):
+                    raise AdjudicationUnavailable("Decision model revision changed during grading")
                 results[item.id] = result
             except Exception as exc:
                 message = str(exc) if isinstance(exc, AdjudicationUnavailable) else type(exc).__name__

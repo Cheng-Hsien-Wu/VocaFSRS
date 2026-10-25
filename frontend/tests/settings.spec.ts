@@ -26,6 +26,7 @@ const llmSettings = {
     { provider: 'gemini', api_key_configured: true, api_key_source: 'environment', effective_model: 'gemini/default', fallback_available: true },
     { provider: 'openai_compatible', api_key_configured: false, api_key_source: 'none', effective_model: 'compatible/default', fallback_available: false },
     { provider: 'd3', api_key_configured: false, api_key_source: 'none', effective_model: 'vllm-sr/d3-turbo', fallback_available: false },
+    { provider: 'cloudflare', api_key_configured: false, api_key_source: 'none', effective_model: 'clef', fallback_available: false },
   ],
 };
 
@@ -127,11 +128,11 @@ test('D3 settings clear fallbacks and use one independent request per answer', a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   const panel = page.locator('.home-llm-panel');
-  await panel.getByLabel('主要服務').selectOption('d3');
+  await panel.getByLabel('批改方式').selectOption('decision');
   await expect(panel.getByText('尚未設定 API Key')).toBeVisible();
   await expect(panel.locator('.home-llm-fallback')).toHaveCount(0);
   await expect(panel.getByLabel('主要模型')).toHaveValue('vllm-sr/d3-turbo');
-  await expect(panel.getByLabel('主要模型')).toHaveAttribute('readonly', '');
+  await expect(panel.getByLabel('主要模型').locator('option')).toHaveCount(1);
   await panel.scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('d3-settings-mobile.png'), fullPage: true });
   await panel.getByRole('button', { name: '儲存', exact: true }).click();
@@ -141,5 +142,33 @@ test('D3 settings clear fallbacks and use one independent request per answer', a
   expect(payload?.batch_size).toBe(1);
   expect(payload?.max_concurrency).toBe(1);
   expect(payload?.clear_api_key).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('decision settings select Cloudflare without carrying a D3 key or LLM fallbacks', async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/llm-settings', async route => {
+    if (route.request().method() === 'PUT') payload = route.request().postDataJSON();
+    await route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const panel = page.locator('.home-llm-panel');
+  await panel.getByLabel('批改方式').selectOption('decision');
+  await panel.locator('details summary').click();
+  await panel.getByLabel('API Key', { exact: true }).fill('draft-d3-key');
+  await panel.getByLabel('主要服務').selectOption('cloudflare');
+  await expect(panel.getByLabel('API Key', { exact: true })).toHaveValue('');
+  await expect(panel.getByLabel('主要模型')).toHaveValue('clef');
+  await panel.getByLabel('Cloudflare Account ID').fill('a'.repeat(32));
+  await panel.getByLabel('API Key', { exact: true }).fill('cloudflare-test-key');
+  await panel.getByRole('button', { name: '儲存', exact: true }).click();
+  await expect.poll(() => payload).not.toBeNull();
+  expect(payload?.provider).toBe('cloudflare');
+  expect(payload?.api_key).toBe('cloudflare-test-key');
+  expect(payload?.base_url).toBe(`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run/@cf/cloudflare/clef`);
+  expect(payload?.fallback_routes).toEqual([]);
+  expect(payload?.batch_size).toBe(1);
+  expect(payload?.max_concurrency).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
