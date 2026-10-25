@@ -124,10 +124,19 @@ if (Test-Path $EnvFile) {
 $PublicUrl = "http://${LanAddress}:$Port"
 if ($ReplaceEnv) {
     $Timezone = Read-Default "Report timezone" "Asia/Taipei"
-    $OpenRouterKey = Read-SecretText "OpenRouter API key"
-    $GoogleKey = Read-SecretText "Gemini API key (fallback)"
-    if (-not $OpenRouterKey -and -not $GoogleKey) {
-        Write-Warning "Formal review answers cannot be graded until an LLM key is added to backend/.env."
+    $D3Key = Read-SecretText "D3 Decision API key (optional)"
+    $GradingProvider = "auto"
+    $OpenRouterKey = ""
+    $GoogleKey = ""
+    if ($D3Key) {
+        $GradingProvider = "d3"
+    }
+    else {
+        $OpenRouterKey = Read-SecretText "OpenRouter API key (optional)"
+        $GoogleKey = Read-SecretText "Gemini API key (optional fallback)"
+    }
+    if (-not $D3Key -and -not $OpenRouterKey -and -not $GoogleKey) {
+        Write-Warning "Formal review answers cannot be graded until a grading API key is configured."
     }
     $DiscordWebhook = Read-SecretText "Discord webhook URL for due-review reminders"
 
@@ -136,6 +145,8 @@ if ($ReplaceEnv) {
         "DATABASE_URL="
         "DATABASE_PATH=data/vocab.db"
         "ALLOWED_ORIGINS=$(ConvertTo-DotEnvValue $PublicUrl)"
+        "LLM_PROVIDER=$(ConvertTo-DotEnvValue $GradingProvider)"
+        "D3_API_KEY=$(ConvertTo-DotEnvValue $D3Key)"
         "OPENROUTER_API_KEY=$(ConvertTo-DotEnvValue $OpenRouterKey)"
         "OPENROUTER_MODEL=openrouter/owl-alpha"
         "OPENROUTER_SITE_URL=$(ConvertTo-DotEnvValue $PublicUrl)"

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.config import settings
-from app.constants import APP_NAME
+from app.constants import APP_NAME, RECALL_RATING_BY_VERDICT
 from app.services.llm_settings import (
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENROUTER_MODEL,
@@ -71,7 +71,7 @@ def _mock_adjudication_result(expected: str, typed: str) -> AdjudicationResult:
     if typed_norm and typed_norm in expected_norm:
         return AdjudicationResult("correct", "Good", "mock semantic match", 1.0, "mock", "mock")
     if typed_norm:
-        return AdjudicationResult("partial", "Hard", "mock non-empty answer", 0.5, "mock", "mock")
+        return AdjudicationResult("partial", "Again", "mock non-empty answer", 0.5, "mock", "mock")
     return AdjudicationResult("incorrect", "Again", "mock empty answer", 1.0, "mock", "mock")
 
 
@@ -94,7 +94,8 @@ def _batch_prompt(items: list[AdjudicationItem]) -> str:
         "results must be an array with one object per input item. "
         "Each result object must include: id, verdict, rating, reason, confidence. "
         "verdict must be one of correct, partial, incorrect. "
-        "rating must be Good for correct, Hard for partial, Again for incorrect. "
+        "rating must be Good for correct and Again for partial or incorrect. "
+        "Do not infer FSRS Hard or Easy from semantic correctness. "
         "confidence must be a number from 0 to 1. "
         "Preserve each input id exactly. "
         "Respond with the raw JSON object only: no markdown code fences, no explanation before or after it.\n\n"
@@ -117,16 +118,16 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 def _normalize(payload: dict[str, Any], provider: str, model: str) -> AdjudicationResult:
     verdict = str(payload.get("verdict", "")).strip().lower()
-    rating = str(payload.get("rating", "")).strip()
     if verdict not in {"correct", "partial", "incorrect"}:
         raise ValueError(f"invalid verdict: {verdict}")
-    expected_rating = {"correct": "Good", "partial": "Hard", "incorrect": "Again"}[verdict]
-    rating = expected_rating
+    rating = RECALL_RATING_BY_VERDICT[verdict]
     confidence_raw = payload.get("confidence", 0.0)
     try:
         confidence = float(confidence_raw)
     except (TypeError, ValueError):
         confidence = 0.0
+    if not math.isfinite(confidence):
+        raise ValueError("confidence must be finite")
     confidence = max(0.0, min(1.0, confidence))
     return AdjudicationResult(
         verdict=verdict,
@@ -372,7 +373,9 @@ async def _adjudicate_remote_batch(
             for raw in raw_results:
                 result_id = str(raw.get("id", "")).strip()
                 if result_id not in expected_ids:
-                    continue
+                    raise ValueError("LLM response contains an unexpected result id")
+                if result_id in normalized:
+                    raise ValueError("LLM response contains a duplicate result id")
                 normalized[result_id] = _normalize(raw, provider, model)
             missing = expected_ids - set(normalized)
             if missing:
@@ -422,6 +425,25 @@ async def adjudicate_answers(
             item.id: _mock_adjudication_result(item.expected, item.typed)
             for item in remote_items
         })
+        return results
+
+    if runtime_config.provider == "d3":
+        from app.d3_adjudicator import adjudicate_d3_answer
+
+        # D3 uses one independent state per answer. Stop after a provider failure
+        # instead of spending the remainder of a session on a failed service.
+        for index, item in enumerate(remote_items):
+            try:
+                result = await asyncio.to_thread(adjudicate_d3_answer, item, runtime_config)
+                if any(previous.provider == "d3" and previous.model != result.model for previous in results.values()):
+                    raise AdjudicationUnavailable("D3 model revision changed during grading")
+                results[item.id] = result
+            except Exception as exc:
+                message = str(exc) if isinstance(exc, AdjudicationUnavailable) else type(exc).__name__
+                raise PartialAdjudicationUnavailable(
+                    results,
+                    {pending.id: message for pending in remote_items[index:]},
+                ) from exc
         return results
 
     batch_size = max(1, runtime_config.batch_size)

@@ -12,6 +12,7 @@ from app.constants import (
     ACTIVE_STUDY_STATUSES,
     AdjudicationStatus,
     CLAIMABLE_ADJUDICATION_STATUSES,
+    RECALL_RATING_BY_VERDICT,
     RETRYABLE_ADJUDICATION_STATUSES,
     StudyItemSyncStatus,
     StudySessionStatus,
@@ -488,19 +489,20 @@ async def _apply_llm_adjudication(
                 "LLM response did not contain this answer",
             )[:500]
             continue
+        rating = RECALL_RATING_BY_VERDICT[result.verdict]
         due = await apply_fsrs_rating(
             db=db,
             session=session,
             item=item,
             card_id=answer.card_id,
-            rating_name=result.rating,
+            rating_name=rating,
             reviewed_at=to_utc_aware(answer.answered_at),
             idempotency_key=answer.idempotency_key,
             confidence=str(result.confidence),
         )
         answer.adjudication_status = AdjudicationStatus.SUCCEEDED
         answer.verdict = result.verdict
-        answer.rating = result.rating
+        answer.rating = rating
         answer.reason = result.reason
         answer.confidence = result.confidence
         answer.provider = result.provider

@@ -103,6 +103,13 @@ async def test_llm_settings_round_trip_does_not_return_secret(client: AsyncClien
             "effective_model": "gemini-2.5-flash",
             "fallback_available": False,
         },
+        {
+            "provider": "d3",
+            "api_key_configured": False,
+            "api_key_source": "none",
+            "effective_model": "vllm-sr/d3-turbo",
+            "fallback_available": False,
+        },
     ]
     assert "api_key" not in body
 
@@ -240,3 +247,26 @@ async def test_llm_settings_test_uses_runtime_config(client: AsyncClient, monkey
     assert res.status_code == 200
     assert res.json() == {"ok": True, "provider": "openrouter", "model": "openrouter/test-model", "error": None}
     assert seen == {"provider": "openrouter", "model": "openrouter/test-model", "timeout": 12}
+
+
+async def test_switch_to_d3_clears_old_key_and_disables_fallbacks(client, monkeypatch):
+    monkeypatch.setenv("D3_API_KEY", "d3-env-secret")
+    await client.put("/api/v1/llm-settings", json={"provider": "openrouter", "api_key": "old-router-secret", "fallback_routes": [{"provider": "gemini", "model": "backup"}]})
+    result = await client.put("/api/v1/llm-settings", json={"provider": "d3"})
+    assert result.status_code == 200
+    data = result.json()
+    assert data["effective_model"] == "vllm-sr/d3-turbo"
+    assert data["api_key_source"] == "environment"
+    assert data["fallback_routes"] == []
+    assert (data["batch_size"], data["max_concurrency"]) == (1, 1)
+    assert data["effective_route_chain"] == [{"provider": "d3", "model": "vllm-sr/d3-turbo"}]
+    assert "secret" not in result.text
+
+
+@pytest.mark.parametrize("payload", [
+    {"provider": "d3", "fallback_routes": [{"provider": "openrouter", "model": "backup"}]},
+    {"provider": "d3", "model": "vllm-sr/d3-flash"},
+    {"provider": "openrouter", "fallback_routes": [{"provider": "d3", "model": "vllm-sr/d3-turbo"}]},
+])
+async def test_d3_rejects_unvalidated_models_or_fallbacks(client, payload):
+    assert (await client.put("/api/v1/llm-settings", json=payload)).status_code == 422

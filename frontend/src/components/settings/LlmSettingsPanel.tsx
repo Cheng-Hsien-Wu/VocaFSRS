@@ -12,6 +12,7 @@ import {
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const MAX_FALLBACK_ROUTES = 5;
 const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
+  { value: 'd3', label: 'D3 Decision API' },
   { value: 'auto', label: '自動選擇' },
   { value: 'gemini', label: 'Gemini Native' },
   { value: 'openai_compatible', label: 'OpenAI-compatible' },
@@ -71,7 +72,7 @@ export function LlmSettingsPanel() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setStatus('LLM 設定讀取失敗：' + (err instanceof Error ? err.message : String(err)));
+        setStatus('批改設定讀取失敗：' + (err instanceof Error ? err.message : String(err)));
       });
     return () => {
       cancelled = true;
@@ -84,7 +85,7 @@ export function LlmSettingsPanel() {
   const effectiveModel = draft?.model.trim() || providerReadiness?.effective_model || '';
   const fallbackProviderOptions = useMemo(() => {
     if (!settings || !draft || draft.provider === 'auto') return [];
-    return settings.provider_readiness.filter(item => (
+    return settings.provider_readiness.filter(item => item.provider !== 'd3' && (
       item.fallback_available
       || item.provider === draft.provider
       || draft.fallbackRoutes.some(route => route.provider === item.provider)
@@ -96,7 +97,7 @@ export function LlmSettingsPanel() {
 
   function selectProvider(provider: LlmProvider) {
     if (!draft) return;
-    const fallbackRoutes = provider === 'auto'
+    const fallbackRoutes = provider === 'auto' || provider === 'd3'
       ? []
       : draft.fallbackRoutes.filter(route => (
         route.provider === provider
@@ -170,9 +171,9 @@ export function LlmSettingsPanel() {
         && !draft.apiKey.trim()
       ),
       timeout_seconds: Number(draft.timeoutSeconds),
-      fallback_routes: draft.provider === 'auto' ? [] : fallbackRoutes,
-      batch_size: Number(draft.batchSize),
-      max_concurrency: Number(draft.maxConcurrency),
+      fallback_routes: draft.provider === 'auto' || draft.provider === 'd3' ? [] : fallbackRoutes,
+      batch_size: draft.provider === 'd3' ? 1 : Number(draft.batchSize),
+      max_concurrency: draft.provider === 'd3' ? 1 : Number(draft.maxConcurrency),
     };
   }
 
@@ -184,12 +185,12 @@ export function LlmSettingsPanel() {
   async function saveSettings() {
     if (!draft || isSaving || isTesting) return;
     setIsSaving(true);
-    setStatus('LLM 設定儲存中…');
+    setStatus('批改設定儲存中…');
     try {
       applySettings(await api.updateLlmSettings(buildPayload()));
-      setStatus('LLM 設定已儲存。');
+      setStatus('批改設定已儲存。');
     } catch (err: unknown) {
-      setStatus('LLM 設定儲存失敗：' + (err instanceof Error ? err.message : String(err)));
+      setStatus('批改設定儲存失敗：' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSaving(false);
     }
@@ -198,23 +199,26 @@ export function LlmSettingsPanel() {
   async function testSettings() {
     if (!draft || isSaving || isTesting) return;
     setIsTesting(true);
-    setStatus('LLM 設定儲存並測試中…');
+    setStatus('批改設定儲存並測試中…');
     try {
       applySettings(await api.updateLlmSettings(buildPayload()));
       const result = await api.testLlmSettings();
       setStatus(result.ok
-        ? `LLM 測試成功：${result.provider ?? ''} ${result.model ?? ''}`.trim()
-        : 'LLM 測試失敗：' + (result.error ?? 'unknown error'));
+        ? `連線測試成功：${result.provider ?? ''} ${result.model ?? ''}`.trim()
+        : '連線測試失敗：' + (result.error ?? 'unknown error'));
     } catch (err: unknown) {
-      setStatus('LLM 測試失敗：' + (err instanceof Error ? err.message : String(err)));
+      setStatus('連線測試失敗：' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsTesting(false);
     }
   }
 
-  const keyStatus = settings?.api_key_configured
-    ? `API Key · ${settings.api_key_source}`
-    : '尚未設定 API Key';
+  const keySource = draft && settings && providersShareLocalKey(draft.provider, settings.provider)
+    ? settings.api_key_source
+    : providerReadiness?.api_key_source ?? 'none';
+  const keyStatus = draft?.apiKey.trim()
+    ? 'API Key · 待儲存'
+    : keySource !== 'none' ? `API Key · ${keySource}` : '尚未設定 API Key';
 
   return (
     <>
@@ -222,7 +226,7 @@ export function LlmSettingsPanel() {
         <div className="home-settings-panel home-llm-panel">
           <div className="home-llm-panel-header">
             <div>
-              <div className="home-setting-label">LLM 批改</div>
+              <div className="home-setting-label">自動批改</div>
               <div className="home-setting-description">{draft ? keyStatus : '讀取設定中…'}</div>
             </div>
             <div className="home-llm-actions">
@@ -252,12 +256,12 @@ export function LlmSettingsPanel() {
                 ) : (
                   <label className="home-llm-field">
                     <span>主要模型</span>
-                    <input className="home-form-control" value={draft.model} onChange={event => updateDraft({ model: event.target.value })} placeholder={effectiveModel} />
+                    <input className="home-form-control" value={draft.provider === 'd3' ? effectiveModel : draft.model} readOnly={draft.provider === 'd3'} onChange={event => updateDraft({ model: event.target.value })} placeholder={effectiveModel} />
                   </label>
                 )}
               </div>
 
-              {draft.provider !== 'auto' && (
+              {draft.provider !== 'auto' && draft.provider !== 'd3' && (
                 <fieldset className="home-llm-fallback">
                   <legend>備援模型</legend>
                   <div className="home-llm-fallback-header">
@@ -331,8 +335,8 @@ export function LlmSettingsPanel() {
                     <input className="home-form-control" type="password" value={draft.apiKey} onChange={event => updateDraft({ apiKey: event.target.value })} placeholder="保留現有 key" />
                   </label>
                   <NumberField label="Timeout（秒）" value={draft.timeoutSeconds} min={5} max={180} onChange={value => updateDraft({ timeoutSeconds: value })} />
-                  <NumberField label="每批題數" value={draft.batchSize} min={1} max={50} onChange={value => updateDraft({ batchSize: value })} />
-                  <NumberField label="同時請求" value={draft.maxConcurrency} min={1} max={4} onChange={value => updateDraft({ maxConcurrency: value })} />
+                  {draft.provider !== 'd3' && <NumberField label="每批題數" value={draft.batchSize} min={1} max={50} onChange={value => updateDraft({ batchSize: value })} />}
+                  {draft.provider !== 'd3' && <NumberField label="同時請求" value={draft.maxConcurrency} min={1} max={4} onChange={value => updateDraft({ maxConcurrency: value })} />}
                 </div>
               </details>
             </>

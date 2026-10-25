@@ -55,7 +55,7 @@ def test_bash_installer_first_run_reaches_completion(tmp_path: Path):
     result = _run_installer(
         workspace,
         env,
-        ["127.0.0.1", "8080", "Asia/Taipei", "", "", "", "", "n"],
+        ["127.0.0.1", "8080", "Asia/Taipei", "", "", "", "", "", "n"],
     )
 
     assert result.returncode == 0, result.stderr
@@ -102,9 +102,19 @@ def test_bash_installer_resolves_dataset_from_invocation_directory(tmp_path: Pat
     result = _run_installer(
         workspace,
         env,
-        ["127.0.0.1", "8080", "Asia/Taipei", "", "", "", dataset.name, "n"],
+        ["127.0.0.1", "8080", "Asia/Taipei", "", "", "", "", dataset.name, "n"],
     )
 
     assert result.returncode == 0, result.stderr
     uv_calls = Path(env["FAKE_UV_LOG"]).read_text(encoding="utf-8")
     assert f"scripts/import_vocabulary.py {dataset}" in uv_calls
+
+
+def test_bash_installer_accepts_d3_without_llm_fallback_keys(tmp_path: Path):
+    workspace, env = _installer_workspace(tmp_path)
+    result = _run_installer(workspace, env, ["127.0.0.1", "8080", "Asia/Taipei", "fixture-d3-key", "", "", "n"])
+    assert result.returncode == 0, result.stderr
+    content = (workspace / "backend/.env").read_text()
+    assert 'LLM_PROVIDER="d3"' in content
+    assert 'D3_API_KEY="fixture-d3-key"' in content
+    assert "fixture-d3-key" not in result.stdout

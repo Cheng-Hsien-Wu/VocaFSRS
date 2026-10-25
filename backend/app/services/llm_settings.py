@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants import DEFAULT_LLM_BATCH_SIZE, DEFAULT_LLM_MAX_CONCURRENCY
+from app.constants import DEFAULT_D3_MODEL, DEFAULT_LLM_BATCH_SIZE, DEFAULT_LLM_MAX_CONCURRENCY
 from app.models import LlmSettings
 from app.schemas import LlmSettingsResponse, LlmSettingsUpdate
 
@@ -13,8 +13,9 @@ from app.schemas import LlmSettingsResponse, LlmSettingsUpdate
 DEFAULT_SETTINGS_ID = "default"
 DEFAULT_OPENROUTER_MODEL = "openrouter/owl-alpha"
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-PROVIDERS = {"auto", "gemini", "openrouter", "openai_compatible"}
 DEFAULT_PROVIDER_ORDER = ("openrouter", "gemini", "openai_compatible")
+CONCRETE_PROVIDERS = (*DEFAULT_PROVIDER_ORDER, "d3")
+PROVIDERS = {"auto", *CONCRETE_PROVIDERS}
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,8 @@ def _env_provider() -> str:
 
 
 def _default_model(provider: str) -> str:
+    if provider == "d3":
+        return DEFAULT_D3_MODEL
     if provider == "openrouter":
         return os.getenv("OPENROUTER_MODEL", settings.openrouter_model or DEFAULT_OPENROUTER_MODEL)
     if provider == "openai_compatible":
@@ -56,6 +59,8 @@ def _default_model(provider: str) -> str:
 
 
 def _env_api_key(provider: str) -> str | None:
+    if provider == "d3":
+        return _clean(os.getenv("D3_API_KEY", settings.d3_api_key or ""))
     if provider == "openrouter":
         return _clean(os.getenv("OPENROUTER_API_KEY", settings.openrouter_api_key or ""))
     if provider == "openai_compatible":
@@ -84,6 +89,8 @@ def _api_key_source(row: LlmSettings | None, provider: str) -> str:
 
 
 def _load_fallback_routes(row: LlmSettings | None, primary_provider: str) -> tuple[LlmRoute, ...]:
+    if primary_provider == "d3":
+        return ()
     routes: list[LlmRoute] = []
     for item in (row.fallback_routes_json if row else []) or []:
         if isinstance(item, str):
@@ -94,7 +101,7 @@ def _load_fallback_routes(row: LlmSettings | None, primary_provider: str) -> tup
             model = _clean(item.get("model")) or ""
         else:
             continue
-        if provider in PROVIDERS - {"auto"} and model:
+        if provider in PROVIDERS - {"auto", "d3"} and model:
             routes.append(LlmRoute(provider=provider, model=model))
     return tuple(routes) if primary_provider != "auto" else ()
 
@@ -139,6 +146,10 @@ async def get_llm_runtime_config(db: AsyncSession) -> LlmRuntimeConfig:
     local_api_key = _clean(row.api_key if row else None)
     api_key = local_api_key or (None if provider == "auto" else _env_api_key(provider))
     fallback_routes = _load_fallback_routes(row, provider)
+    batch_size = (row.batch_size if row else None) or DEFAULT_LLM_BATCH_SIZE
+    max_concurrency = (row.max_concurrency if row else None) or DEFAULT_LLM_MAX_CONCURRENCY
+    if provider == "d3":
+        batch_size = max_concurrency = 1
     return LlmRuntimeConfig(
         provider=provider,
         model=model,
@@ -146,8 +157,8 @@ async def get_llm_runtime_config(db: AsyncSession) -> LlmRuntimeConfig:
         api_key=api_key,
         timeout_seconds=timeout,
         fallback_routes=fallback_routes,
-        batch_size=row.batch_size if row and row.batch_size else DEFAULT_LLM_BATCH_SIZE,
-        max_concurrency=row.max_concurrency if row and row.max_concurrency else DEFAULT_LLM_MAX_CONCURRENCY,
+        batch_size=batch_size,
+        max_concurrency=max_concurrency,
     )
 
 
@@ -158,7 +169,7 @@ async def get_llm_settings_response(db: AsyncSession) -> LlmSettingsResponse:
     route_chain = _route_chain(runtime)
     provider_sources = {
         provider: _provider_key_source(row, runtime.provider, provider)
-        for provider in DEFAULT_PROVIDER_ORDER
+        for provider in CONCRETE_PROVIDERS
     }
     return LlmSettingsResponse(
         provider=runtime.provider,  # type: ignore[arg-type]
@@ -185,9 +196,9 @@ async def get_llm_settings_response(db: AsyncSession) -> LlmSettingsResponse:
                 "api_key_configured": provider_sources[provider] != "none",
                 "api_key_source": provider_sources[provider],
                 "effective_model": _default_model(provider),
-                "fallback_available": bool(_env_api_key(provider)),
+                "fallback_available": provider != "d3" and bool(_env_api_key(provider)),
             }
-            for provider in DEFAULT_PROVIDER_ORDER
+            for provider in CONCRETE_PROVIDERS
         ],
     )
 
@@ -204,6 +215,10 @@ async def update_llm_settings(db: AsyncSession, payload: LlmSettingsUpdate) -> L
         )
         db.add(row)
 
+    previous_key_provider = row.provider if row.provider not in (None, "auto") else DEFAULT_PROVIDER_ORDER[0]
+    next_key_provider = payload.provider if payload.provider != "auto" else DEFAULT_PROVIDER_ORDER[0]
+    if previous_key_provider != next_key_provider:
+        row.api_key = None
     row.provider = payload.provider
     row.model = _clean(payload.model)
     row.base_url = _clean(payload.base_url)
@@ -215,6 +230,12 @@ async def update_llm_settings(db: AsyncSession, payload: LlmSettingsUpdate) -> L
         row.batch_size = payload.batch_size
     if payload.max_concurrency is not None:
         row.max_concurrency = payload.max_concurrency
+    if payload.provider == "d3":
+        row.model = DEFAULT_D3_MODEL
+        row.base_url = None
+        row.fallback_routes_json = []
+        row.batch_size = 1
+        row.max_concurrency = 1
     if payload.clear_api_key:
         row.api_key = None
     elif payload.api_key is not None and payload.api_key.strip():

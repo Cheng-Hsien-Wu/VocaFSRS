@@ -213,8 +213,8 @@ export default function SessionSummaryPage() {
   const isStuck = Boolean(sessionId && !isLoading && !allDone);
   const adjudicationPromptSummary = [
     '每一題送出英文單字、詞性、標準中文意思、你的輸入。',
-    'LLM 只判斷語意是否正確，不要求逐字相同。',
-    '輸出只能是 JSON：correct→Good、partial→Hard、incorrect→Again，並附 confidence 和簡短 reason。',
+    '模型判斷核心語意是否正確，不要求逐字相同，也不要求列出全部義項。',
+    '核心正確排程為 Good；未完整回想或答錯排程為 Again，不從文字答案推測 FSRS Hard。',
     '「不知道」直接判為 Again；其他答案分批送出，並以答案 ID 彙整。',
   ];
 
@@ -242,7 +242,7 @@ export default function SessionSummaryPage() {
                 <div className="summary-status-row">
                   {isLoading && <span className="loading-spinner" aria-hidden="true" />}
                   <div role="status" aria-live="polite" className="summary-status-copy">
-                    {allDone ? 'LLM 批改完成' : isLoading ? `LLM 批改中，已送出 ${elapsedSeconds}s` : isStuck ? '批改中斷，請按下方重新批改' : '等待批改'}
+                    {allDone ? '批改完成' : isLoading ? `批改中，已送出 ${elapsedSeconds}s` : isStuck ? '批改中斷，請按下方重新批改' : '等待批改'}
                   </div>
                 </div>
                 <div className="summary-stat-grid">
@@ -281,7 +281,7 @@ export default function SessionSummaryPage() {
 
               <details className="section-block section-block-muted summary-prompt">
                 <summary className="summary-prompt-toggle">
-                  目前 LLM 批改 prompt 摘要
+                  批改規則摘要
                 </summary>
                 <ul className="summary-prompt-list">
                   {adjudicationPromptSummary.map((line) => <li key={line}>{line}</li>)}

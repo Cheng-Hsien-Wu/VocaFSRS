@@ -97,7 +97,7 @@ test.describe('Typed Study & LLM Adjudication E2E', () => {
     }
 
     await page.waitForURL(/\/study\/summary/, { timeout: 25000 });
-    await expect(page.locator('text=LLM 批改完成')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('.summary-status-copy')).toHaveText('批改完成', { timeout: 30000 });
     const summaryText = await page.locator('body').textContent();
     expect(summaryText).toContain('Good 1');
     expect(summaryText).toMatch(/Hard [02] · Again [02]/);

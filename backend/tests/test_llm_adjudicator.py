@@ -17,6 +17,27 @@ from app.llm_adjudicator import (
 from app.services.llm_settings import LlmRoute, LlmRuntimeConfig
 
 
+@pytest.mark.parametrize("extra_id", ["a", "unexpected"])
+async def test_duplicate_or_unknown_response_ids_are_rejected(monkeypatch, extra_id):
+    import app.llm_adjudicator as adjudicator
+
+    def caller(*args):
+        return [{"id": i, "verdict": "correct", "rating": "Good", "reason": "ok", "confidence": .8} for i in ["a", "b", extra_id]], "fake", "fake"
+
+    monkeypatch.setattr(adjudicator, "_provider_callers", lambda config: [(caller, None)])
+    items = [AdjudicationItem(i, "invoice", "發票", "發票") for i in ["a", "b"]]
+    with pytest.raises(AdjudicationUnavailable):
+        await adjudicator._adjudicate_remote_batch(items, LlmRuntimeConfig("openrouter", "fake", None, None, 5))
+
+
+@pytest.mark.parametrize("confidence", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_confidence_is_rejected(confidence):
+    from app.llm_adjudicator import _normalize
+
+    with pytest.raises(ValueError):
+        _normalize({"verdict": "correct", "confidence": confidence}, "fake", "fake")
+
+
 def test_openrouter_omits_response_format(monkeypatch):
     seen = {}
 

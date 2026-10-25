@@ -3,6 +3,7 @@ from typing import Any, Literal, List, Optional
 from datetime import datetime
 
 from app.constants import (
+    DEFAULT_D3_MODEL,
     DEFAULT_MINIMUM_DUE_COUNT,
     PlacementAnswer,
     PlacementAuditStatus,
@@ -88,8 +89,8 @@ class AuditQuestionsResponse(BaseModel):
     questions: list[AuditQuestionResponse]
 
 
-LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible"]
-ConcreteLlmProvider = Literal["gemini", "openrouter", "openai_compatible"]
+LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible", "d3"]
+ConcreteLlmProvider = Literal["gemini", "openrouter", "openai_compatible", "d3"]
 
 
 class LlmProviderReadiness(BaseModel):
@@ -147,6 +148,12 @@ class LlmSettingsUpdate(BaseModel):
             raise ValueError("fallback provider and model pairs must be unique")
         if self.provider == "auto" and fallback_routes:
             raise ValueError("auto provider cannot use custom fallback routes")
+        if self.provider == "d3" and fallback_routes:
+            raise ValueError("D3 does not use fallback models")
+        if any(route.provider == "d3" for route in fallback_routes):
+            raise ValueError("D3 must be selected as the primary service")
+        if self.provider == "d3" and self.model not in (None, "", DEFAULT_D3_MODEL):
+            raise ValueError("D3 currently supports vllm-sr/d3-turbo only")
         return self
 
 

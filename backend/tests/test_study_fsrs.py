@@ -327,8 +327,8 @@ async def test_fsrs_ratings_and_due_updates(client: AsyncClient, monkeypatch):
         assert logs["study-ev-1"].was_correct is True
         assert logs["study-ev-2"].rating == 1
         assert logs["study-ev-2"].was_correct is False
-        assert logs["study-ev-3"].rating == 2
-        assert logs["study-ev-3"].was_correct is True
+        assert logs["study-ev-3"].rating == 1
+        assert logs["study-ev-3"].was_correct is False
         for log in logs.values():
             assert log.previous_state_json is not None
             assert log.next_state_json is not None
@@ -348,8 +348,8 @@ async def test_fsrs_ratings_and_due_updates(client: AsyncClient, monkeypatch):
         session = await db.get(StudySession, session_id)
         assert session.cards_answered == 3
         assert session.good_count == 1
-        assert session.again_count == 1
-        assert session.hard_count == 1
+        assert session.again_count == 2
+        assert session.hard_count == 0
 
 async def test_placement_creates_zero_review_states_and_logs(client: AsyncClient):
     # Ensure placement sessions and events do not create any ReviewState or ReviewLog records

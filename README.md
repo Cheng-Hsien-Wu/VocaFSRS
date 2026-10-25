@@ -1,6 +1,6 @@
 # VocaFSRS
 
-VocaFSRS is a self-hosted English vocabulary review app for Chinese-speaking learners. It combines free-text recall, large language model (LLM) grading, and Free Spaced Repetition Scheduler (FSRS) scheduling.
+VocaFSRS is a self-hosted English vocabulary review app for Chinese-speaking learners. It combines free-text recall, automated semantic grading, and Free Spaced Repetition Scheduler (FSRS) scheduling. Grading supports the D3 Decision API and optional LLM providers.
 
 The workflow has two stages:
 
@@ -21,7 +21,7 @@ VocaFSRS is designed for one user on a trusted local network. It does not includ
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - Node.js 20.19+, excluding 21.x, or Node.js 22.12+
 - npm
-- An API key for a supported LLM service when using graded review
+- An API key for D3 or another supported grading service when using graded review
 
 ## Install
 
@@ -68,7 +68,9 @@ The interactive installer:
 
 At the vocabulary import prompt, enter either an absolute path or a path relative to the directory where you started the installer. For example, if `my-vocabulary.txt` is in the repository directory, enter `my-vocabulary.txt`. The file does not need to be placed in `backend/`. VocaFSRS reads the source file without moving it and stores the imported vocabulary in `backend/data/vocab.db`.
 
-The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an LLM API key. Local settings and credentials are stored in `backend/.env`; do not share that file. Restart the server after changing it.
+The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an API key. The installer accepts a D3 key first; leaving it blank offers the existing LLM providers. Local environment settings are stored in `backend/.env`; do not share that file. Restart the server after changing it. Settings saved in the web interface take precedence over environment defaults.
+
+For D3, use the homepage grading settings to select **D3 Decision API**, enter the key under connection settings, and save/test. An environment-based installation can instead use `LLM_PROVIDER=d3` and `D3_API_KEY=your-key` in `backend/.env`. D3 uses one term per request and does not fall back to an LLM. The service receives the term, reference meaning, part of speech, and typed answer; its [data-retention notice](https://decision.vllm-sr.ai/) states that requests and responses may be logged.
 
 Discord reminders are sent only while the VocaFSRS server is running.
 
@@ -184,19 +186,18 @@ After each 100 triage answers, VocaFSRS checks a sample of terms marked **Known*
 
 ### FSRS review
 
-Formal review uses typed answers instead of multiple-choice options. This makes it harder to get credit by guessing and reduces reliance on learners' own difficulty ratings, which can overestimate how well a term is remembered. At the end of the session, VocaFSRS sends the answers for one batch grading request. LLM grading provides a more consistent signal, but it can still make mistakes.
+Formal review uses typed answers instead of multiple-choice options. This makes it harder to get credit by guessing and reduces reliance on learners' own difficulty ratings. Answers are graded after the session; the backend handles individual D3 requests or LLM batches. Automated grading can still make mistakes.
 
-Each answer receives one of three ratings:
+Feedback distinguishes correct, partial, and incorrect meanings. For newly graded answers, scheduling uses:
 
-- `Again`
-- `Hard`
-- `Good`
+- `Good`: a complete acceptable core meaning was recalled.
+- `Again`: the answer was incomplete or incorrect.
 
-FSRS combines the rating with the term's review history to calculate its next due time.
+FSRS combines the rating with the term's review history to calculate its next due time. Semantic partial credit is not FSRS `Hard`, which represents successful but effortful recall. Existing historical ratings, including `Hard`, remain unchanged.
 
 The mistakes page can export recent `Again` and `Hard` terms for a NotebookLM podcast or other listening practice.
 
-Without an LLM API key, vocabulary import and triage still work. Do not start formal review until a key is configured: answers can be submitted, but grading will fail and another review round remains blocked until the failed grading is resolved.
+Without a grading API key, vocabulary import and triage still work. Do not start formal review until a key is configured: answers can be submitted, but grading will fail and another review round remains blocked until the failed grading is resolved.
 
 ## Maintain the installation
 

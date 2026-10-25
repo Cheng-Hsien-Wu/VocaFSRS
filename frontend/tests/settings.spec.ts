@@ -25,6 +25,7 @@ const llmSettings = {
     { provider: 'openrouter', api_key_configured: true, api_key_source: 'local', effective_model: 'openrouter/default', fallback_available: false },
     { provider: 'gemini', api_key_configured: true, api_key_source: 'environment', effective_model: 'gemini/default', fallback_available: true },
     { provider: 'openai_compatible', api_key_configured: false, api_key_source: 'none', effective_model: 'compatible/default', fallback_available: false },
+    { provider: 'd3', api_key_configured: false, api_key_source: 'none', effective_model: 'vllm-sr/d3-turbo', fallback_available: false },
   ],
 };
 
@@ -85,7 +86,7 @@ test('settings rejects the primary model as a fallback and clears a draft key on
 
   await llmPanel.locator('.home-llm-route').first().locator('input').fill('openai/gpt-4.1-mini');
   await llmPanel.getByRole('button', { name: '儲存', exact: true }).click();
-  await expect(page.getByText('LLM 設定儲存失敗：備援模型不能和主要模型相同')).toBeVisible();
+  await expect(page.getByText('批改設定儲存失敗：備援模型不能和主要模型相同')).toBeVisible();
   expect(updateRequests).toBe(0);
 
   await llmPanel.locator('details summary').click();
@@ -115,4 +116,30 @@ test('switching OpenRouter to Auto preserves its local key without a redundant r
   await llmPanel.getByRole('button', { name: '儲存', exact: true }).click();
   await expect.poll(() => updatePayload).not.toBeNull();
   expect(updatePayload?.clear_api_key).toBe(false);
+});
+
+test('D3 settings clear fallbacks and use one independent request per answer', async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/llm-settings', async route => {
+    if (route.request().method() === 'PUT') payload = route.request().postDataJSON();
+    await route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const panel = page.locator('.home-llm-panel');
+  await panel.getByLabel('主要服務').selectOption('d3');
+  await expect(panel.getByText('尚未設定 API Key')).toBeVisible();
+  await expect(panel.locator('.home-llm-fallback')).toHaveCount(0);
+  await expect(panel.getByLabel('主要模型')).toHaveValue('vllm-sr/d3-turbo');
+  await expect(panel.getByLabel('主要模型')).toHaveAttribute('readonly', '');
+  await panel.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('d3-settings-mobile.png'), fullPage: true });
+  await panel.getByRole('button', { name: '儲存', exact: true }).click();
+  await expect.poll(() => payload).not.toBeNull();
+  expect(payload?.provider).toBe('d3');
+  expect(payload?.fallback_routes).toEqual([]);
+  expect(payload?.batch_size).toBe(1);
+  expect(payload?.max_concurrency).toBe(1);
+  expect(payload?.clear_api_key).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -35,6 +35,7 @@ class Settings:
     llm_model: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
     openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
     openrouter_model: str | None = os.getenv("OPENROUTER_MODEL")
+    d3_api_key: str | None = os.getenv("D3_API_KEY")
     llm_timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
     report_timezone: str = os.getenv("REPORT_TIMEZONE", "Asia/Taipei")
     app_public_url: str | None = os.getenv("APP_PUBLIC_URL")

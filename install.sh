@@ -144,10 +144,18 @@ fi
 public_url="http://${lan_ip}:${port}"
 if [[ "$replace_env" == "yes" ]]; then
   timezone="$(prompt "Report timezone" "Asia/Taipei")"
-  openrouter_key="$(prompt_secret "OpenRouter API key")"
-  google_key="$(prompt_secret "Gemini API key (fallback)")"
-  if [[ -z "$openrouter_key" && -z "$google_key" ]]; then
-    printf '%s\n' "Warning: formal review answers cannot be graded until an LLM key is added to backend/.env."
+  d3_key="$(prompt_secret "D3 Decision API key (optional)")"
+  grading_provider="auto"
+  openrouter_key=""
+  google_key=""
+  if [[ -n "$d3_key" ]]; then
+    grading_provider="d3"
+  else
+    openrouter_key="$(prompt_secret "OpenRouter API key (optional)")"
+    google_key="$(prompt_secret "Gemini API key (optional fallback)")"
+  fi
+  if [[ -z "$d3_key" && -z "$openrouter_key" && -z "$google_key" ]]; then
+    printf '%s\n' "Warning: formal review answers cannot be graded until a grading API key is configured."
   fi
   discord_webhook="$(prompt_secret "Discord webhook URL for due-review reminders")"
 
@@ -156,6 +164,8 @@ VOCAB_ENV=production
 DATABASE_URL=
 DATABASE_PATH=data/vocab.db
 ALLOWED_ORIGINS=$(env_value "$public_url")
+LLM_PROVIDER=$(env_value "$grading_provider")
+D3_API_KEY=$(env_value "$d3_key")
 OPENROUTER_API_KEY=$(env_value "$openrouter_key")
 OPENROUTER_MODEL=openrouter/owl-alpha
 OPENROUTER_SITE_URL=$(env_value "$public_url")

@@ -87,17 +87,17 @@ test('summary probes processing work once on load and once after reload', async 
   });
   await page.goto('/study/summary');
 
-  await expect(page.getByText('LLM 批改中')).toBeVisible();
+  await expect(page.getByText('批改中')).toBeVisible();
   await expect.poll(() => adjudicateRequests).toBe(1);
   await page.waitForTimeout(1800);
   expect(adjudicateRequests).toBe(1);
 
   await page.reload();
-  await expect(page.getByText('LLM 批改中')).toBeVisible();
+  await expect(page.getByText('批改中')).toBeVisible();
   await expect.poll(() => adjudicateRequests).toBe(2);
 
   completed = true;
-  await expect(page.getByText('LLM 批改完成')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成', { timeout: 5000 });
   await expect(page.getByText('allocate')).toBeVisible();
   expect(adjudicateRequests).toBe(2);
   expect(statusRequests).toBeGreaterThanOrEqual(3);
@@ -136,8 +136,8 @@ test('summary retries a pending claim after the initial POST is interrupted', as
   });
   await page.goto('/study/summary');
 
-  await expect(page.getByText('LLM 批改中')).toBeVisible();
-  await expect(page.getByText('LLM 批改完成')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText('批改中')).toBeVisible();
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成', { timeout: 8000 });
   expect(adjudicateRequests).toBe(2);
 });
 
@@ -156,7 +156,7 @@ test('summary probes processing work once again when the page becomes visible', 
     sessionStorage.removeItem('study_summary_typed_session_id');
   });
   await page.goto('/study/summary');
-  await expect(page.getByText('LLM 批改中')).toBeVisible();
+  await expect(page.getByText('批改中')).toBeVisible();
   await expect.poll(() => adjudicateRequests).toBe(1);
   await page.waitForTimeout(1800);
   expect(adjudicateRequests).toBe(1);
@@ -186,7 +186,7 @@ test('summary periodically probes processing work that becomes stale while visib
     localStorage.setItem('study_summary_typed_session_id', 'recovery-session');
   });
   await page.goto('/study/summary');
-  await expect(page.getByText('LLM 批改中')).toBeVisible();
+  await expect(page.getByText('批改中')).toBeVisible();
   await expect.poll(() => adjudicateRequests).toBe(1);
 
   await page.evaluate(() => {
@@ -195,7 +195,7 @@ test('summary periodically probes processing work that becomes stale while visib
   });
 
   await expect.poll(() => adjudicateRequests, { timeout: 5000 }).toBe(2);
-  await expect(page.getByText('LLM 批改完成')).toBeVisible();
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成');
   await page.waitForTimeout(1800);
   expect(adjudicateRequests).toBe(2);
 });
@@ -266,7 +266,7 @@ test('manual retry keeps polling when the server accepts the claim but the respo
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect.poll(() => statusRequests).toBeGreaterThanOrEqual(2);
   await page.getByRole('button', { name: '重新批改' }).click();
-  await expect(page.getByText('LLM 批改完成')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成', { timeout: 5000 });
   expect(processingReads).toBeGreaterThanOrEqual(2);
 });
 
@@ -284,7 +284,7 @@ test('summary reads sessionStorage when localStorage reads are unavailable', asy
   });
 
   await page.goto('/study/summary');
-  await expect(page.getByText('LLM 批改完成')).toBeVisible();
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成');
 });
 
 test('summary storage failure does not block navigation after a session completes', async ({ page }) => {
@@ -334,7 +334,7 @@ test('summary storage failure does not block navigation after a session complete
 
   await summaryButton.click();
   await expect(page).toHaveURL(/\/study\/summary$/);
-  await expect(page.getByText('LLM 批改完成')).toBeVisible();
+  await expect(page.locator('.summary-status-copy')).toHaveText('批改完成');
   expect(await page.evaluate(() => {
     const raw = sessionStorage.getItem('study_summary_typed_session_id_record');
     return raw ? JSON.parse(raw).id : null;
