@@ -1,10 +1,12 @@
 """D3's native choice API, kept separate from generated-JSON LLM transports."""
 import json
 import math
+import os
 import threading
 import time
 
 from app.constants import DEFAULT_D3_MODEL
+from app.config import settings
 from app.llm_adjudicator import AdjudicationItem, AdjudicationResult, AdjudicationUnavailable, _normalize, _post_json
 from app.services.llm_settings import LlmRuntimeConfig, _env_api_key
 
@@ -46,6 +48,8 @@ def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> A
     key = runtime.api_key or _env_api_key("d3")
     if not key:
         raise AdjudicationUnavailable("D3_API_KEY is not configured")
+    backup = (os.getenv("D3_BACKUP_API_KEY", settings.d3_backup_api_key or "")).strip()
+    keys = list(dict.fromkeys(candidate for candidate in (key, backup) if candidate))
     model = runtime.model or DEFAULT_D3_MODEL
     if model != DEFAULT_D3_MODEL:
         raise AdjudicationUnavailable("Unsupported D3 model")
@@ -59,12 +63,19 @@ def adjudicate_d3_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig) -> A
     # One process-wide lane also bounds overlapping sessions/settings tests.
     # 429 responses still fail safely; this is not a promise of provider quota.
     with _request_lock:
-        time.sleep(max(0.0, _next_request_at - time.monotonic()))
-        _next_request_at = time.monotonic() + 1.0
-        try:
-            response = _post_json(D3_API_URL, {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, payload, runtime.timeout_seconds)
-        except AdjudicationUnavailable as exc:
-            raise AdjudicationUnavailable(str(exc).replace(key, "[REDACTED]")) from None
+        for index, candidate in enumerate(keys):
+            time.sleep(max(0.0, _next_request_at - time.monotonic()))
+            _next_request_at = time.monotonic() + 1.0
+            try:
+                response = _post_json(D3_API_URL, {"Authorization": f"Bearer {candidate}", "Content-Type": "application/json"}, payload, runtime.timeout_seconds)
+                break
+            except AdjudicationUnavailable as exc:
+                if index + 1 < len(keys):
+                    continue
+                message = str(exc)
+                for secret in keys:
+                    message = message.replace(secret, "[REDACTED]")
+                raise AdjudicationUnavailable(message) from None
     try:
         meta = response["meta"]
         revision = meta["revision"]

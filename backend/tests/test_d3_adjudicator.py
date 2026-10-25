@@ -26,6 +26,7 @@ def no_wait(monkeypatch):
     monkeypatch.setattr(d3.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(d3, "_next_request_at", 0.0)
     monkeypatch.delenv("LLM_TEST_MODE", raising=False)
+    monkeypatch.setenv("D3_BACKUP_API_KEY", "")
 
 
 @pytest.mark.parametrize("choice,verdict,rating", [("Good", "correct", "Good"), ("Hard", "partial", "Again"), ("Again", "incorrect", "Again")])
@@ -116,3 +117,59 @@ async def test_revision_change_is_not_silently_mixed(monkeypatch):
         await adjudicate_answers(items, runtime())
     assert set(caught.value.results) == {"0"}
     assert calls == 2
+
+
+def test_backup_key_retries_same_payload_only_after_failure(monkeypatch):
+    monkeypatch.setenv("D3_BACKUP_API_KEY", "backup-secret")
+    calls = []
+
+    def post(url, headers, body, timeout):
+        calls.append((headers["Authorization"], copy.deepcopy(body)))
+        if len(calls) == 1:
+            raise AdjudicationUnavailable("HTTP 429")
+        return response()
+
+    monkeypatch.setattr(d3, "_post_json", post)
+    result = d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    assert result.rating == "Good"
+    assert [call[0] for call in calls] == ["Bearer test-secret", "Bearer backup-secret"]
+    assert calls[0][1] == calls[1][1]
+
+
+@pytest.mark.parametrize("backup", ["backup-secret", "test-secret", ""])
+def test_exhausted_keys_are_redacted_and_duplicates_not_retried(monkeypatch, backup):
+    monkeypatch.setenv("D3_BACKUP_API_KEY", backup)
+    calls = []
+
+    def post(*args):
+        calls.append(args)
+        raise AdjudicationUnavailable("HTTP 401 test-secret backup-secret")
+
+    monkeypatch.setattr(d3, "_post_json", post)
+    with pytest.raises(AdjudicationUnavailable) as caught:
+        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    assert len(calls) == (2 if backup == "backup-secret" else 1)
+    assert "test-secret" not in str(caught.value)
+    if backup:
+        assert backup not in str(caught.value)
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_no_backup_call_after_success_or_invalid_response(monkeypatch, valid):
+    monkeypatch.setenv("D3_BACKUP_API_KEY", "backup-secret")
+    calls = []
+
+    def post(*args):
+        calls.append(args)
+        raw = response()
+        if not valid:
+            raw["model"] = "unexpected"
+        return raw
+
+    monkeypatch.setattr(d3, "_post_json", post)
+    if valid:
+        d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    else:
+        with pytest.raises(AdjudicationUnavailable):
+            d3.adjudicate_d3_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    assert len(calls) == 1
