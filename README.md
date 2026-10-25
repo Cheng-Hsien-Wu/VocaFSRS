@@ -184,7 +184,7 @@ After each 100 triage answers, VocaFSRS checks a sample of terms marked **Known*
 
 ### FSRS review
 
-Formal review uses typed answers instead of multiple-choice options. At the end of the session, VocaFSRS sends the answers for one batch grading request.
+Formal review uses typed answers instead of multiple-choice options. This makes it harder to get credit by guessing and reduces reliance on learners' own difficulty ratings, which can overestimate how well a term is remembered. At the end of the session, VocaFSRS sends the answers for one batch grading request. LLM grading provides a more consistent signal, but it can still make mistakes.
 
 Each answer receives one of three ratings:
 
