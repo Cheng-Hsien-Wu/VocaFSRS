@@ -72,6 +72,8 @@ The host address, timezone, vocabulary file, and reminder settings can be change
 
 In homepage grading settings, select **Decision Model** or **LLM**, then choose the service and model. Decision models currently support **vLLM-SR / D3-turbo** and **Cloudflare Workers AI / CLEF**, sharing the same semantic grading rules. They process one term per request and never fall back to an LLM or another model. Enter the API key under connection settings, then save/test. Cloudflare also requires a 32-character Account ID.
 
+The D3 provider currently serves the `d3-turbo` selector through `d3-ultra`, as documented in its [model list](https://decision.vllm-sr.ai/docs#models). This is a provider-side alias, not our fallback mechanism. Grading records store the actual returned model and revision; unrelated models and inconsistent metadata are rejected.
+
 Environment-based installations can configure one of these providers in `backend/.env`:
 
 | Provider | Settings | Optional Backup Key |

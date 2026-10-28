@@ -83,6 +83,29 @@ def test_provider_error_redacts_key(monkeypatch):
     assert "test-secret" not in str(caught.value)
 
 
+def test_documented_turbo_alias_records_actual_ultra_model(monkeypatch):
+    raw = response()
+    raw["model"] = raw["meta"]["model_id"] = "vllm-sr/d3-ultra"
+    monkeypatch.setattr(d3, "_post_json", lambda *args: raw)
+    result = d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+    assert result.model == "vllm-sr/d3-ultra@test-revision/bare-word-v1"
+    assert result.rating == "Good"
+
+
+@pytest.mark.parametrize("served,metadata", [
+    ("vllm-sr/d3-ultra", DEFAULT_D3_MODEL),
+    ("vllm-sr/d3-flash", "vllm-sr/d3-flash"),
+    (DEFAULT_D3_MODEL, "vllm-sr/d3-ultra"),
+])
+def test_alias_support_still_rejects_unexpected_or_inconsistent_models(monkeypatch, served, metadata):
+    raw = response()
+    raw["model"] = served
+    raw["meta"]["model_id"] = metadata
+    monkeypatch.setattr(d3, "_post_json", lambda *args: raw)
+    with pytest.raises(AdjudicationUnavailable):
+        d3.adjudicate_decision_answer(AdjudicationItem("a", "invoice", "發票", "發票"), runtime())
+
+
 async def test_d3_failure_preserves_success_and_stops_remaining_calls(monkeypatch):
     calls = []
 

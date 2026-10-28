@@ -5,7 +5,7 @@ import os
 import threading
 import time
 
-from app.constants import DECISION_MODELS
+from app.constants import DECISION_MODELS, D3_SERVED_MODELS
 from app.config import settings
 from app.llm_adjudicator import AdjudicationItem, AdjudicationResult, AdjudicationUnavailable, _normalize, _post_json
 from app.services.llm_settings import LlmRuntimeConfig, _env_api_key
@@ -97,10 +97,11 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
         else:
             meta = response["meta"]
             revision = meta["revision"]
-            if meta["model_id"] != model or not isinstance(revision, str) or not revision or len(revision) > 128:
+            served_model = response["model"]
+            if served_model not in D3_SERVED_MODELS[model] or meta["model_id"] != served_model or not isinstance(revision, str) or not revision or len(revision) > 128:
                 raise ValueError("model metadata")
-            provenance = f"{model}@{revision}/{DECISION_POLICY_VERSION}"
-        if response["model"] != model:
+            provenance = f"{served_model}@{revision}/{DECISION_POLICY_VERSION}"
+        if provider == "cloudflare" and response["model"] != model:
             raise ValueError("model")
         if set(response["answers"]) != {"grade"}:
             raise ValueError("question ids")
