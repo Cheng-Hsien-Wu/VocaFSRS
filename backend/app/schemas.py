@@ -90,8 +90,8 @@ class AuditQuestionsResponse(BaseModel):
     questions: list[AuditQuestionResponse]
 
 
-LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible", "d3", "cloudflare"]
-ConcreteLlmProvider = Literal["gemini", "openrouter", "openai_compatible", "d3", "cloudflare"]
+LlmProvider = Literal["auto", "gemini", "openrouter", "openai_compatible", "d3", "cloudflare", "gemini_decision"]
+ConcreteLlmProvider = Literal["gemini", "openrouter", "openai_compatible", "d3", "cloudflare", "gemini_decision"]
 
 
 def validate_cloudflare_url(url: str) -> str:

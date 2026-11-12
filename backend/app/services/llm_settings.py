@@ -59,6 +59,8 @@ def _default_model(provider: str) -> str:
 
 
 def _env_api_key(provider: str) -> str | None:
+    if provider == "gemini_decision":
+        return _clean(os.getenv("GEMINI_DECISION_API_KEY", settings.gemini_decision_api_key or ""))
     if provider == "cloudflare":
         return _clean(os.getenv("CLOUDFLARE_API_TOKEN", settings.cloudflare_api_token or ""))
     if provider == "d3":
@@ -237,7 +239,7 @@ async def update_llm_settings(db: AsyncSession, payload: LlmSettingsUpdate) -> L
         row.max_concurrency = payload.max_concurrency
     if payload.provider in DECISION_MODELS:
         row.model = DECISION_MODELS[payload.provider]
-        if payload.provider == "d3":
+        if payload.provider != "cloudflare":
             row.base_url = None
         row.fallback_routes_json = []
         row.batch_size = 1

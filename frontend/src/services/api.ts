@@ -110,7 +110,7 @@ export interface AdjudicationStatusDto {
   results: AdjudicationResultDto[];
 }
 
-export type LlmProvider = 'auto' | 'gemini' | 'openrouter' | 'openai_compatible' | 'd3' | 'cloudflare';
+export type LlmProvider = 'auto' | 'gemini' | 'openrouter' | 'openai_compatible' | 'd3' | 'cloudflare' | 'gemini_decision';
 export type ConcreteLlmProvider = Exclude<LlmProvider, 'auto'>;
 
 export interface LlmFallbackRoute {

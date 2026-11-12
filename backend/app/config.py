@@ -37,6 +37,8 @@ class Settings:
     openrouter_model: str | None = os.getenv("OPENROUTER_MODEL")
     d3_api_key: str | None = os.getenv("D3_API_KEY")
     d3_backup_api_key: str | None = os.getenv("D3_BACKUP_API_KEY")
+    gemini_decision_api_key: str | None = os.getenv("GEMINI_DECISION_API_KEY")
+    gemini_decision_backup_api_key: str | None = os.getenv("GEMINI_DECISION_BACKUP_API_KEY")
     cloudflare_api_token: str | None = os.getenv("CLOUDFLARE_API_TOKEN")
     cloudflare_backup_api_token: str | None = os.getenv("CLOUDFLARE_BACKUP_API_TOKEN")
     cloudflare_account_id: str | None = os.getenv("CLOUDFLARE_ACCOUNT_ID")

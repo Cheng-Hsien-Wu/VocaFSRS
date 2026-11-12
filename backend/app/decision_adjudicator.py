@@ -12,6 +12,7 @@ from app.services.llm_settings import LlmRuntimeConfig, _env_api_key
 from app.schemas import validate_cloudflare_url
 
 D3_API_URL = "https://decision.vllm-sr.ai/v1/systemone"
+GEMINI_DECISION_API_URL = "https://generativelanguage.googleapis.com/v1beta/decisions"
 DECISION_POLICY_VERSION = "bare-word-v1"
 DECISION_INSTRUCTIONS = (
     "Assess semantic recall of an English word or phrase expressed in Chinese. "
@@ -52,7 +53,11 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
     key = runtime.api_key or _env_api_key(provider)
     if not key:
         raise AdjudicationUnavailable("Decision API key is not configured")
-    env_name, default_backup = ("D3_BACKUP_API_KEY", settings.d3_backup_api_key) if provider == "d3" else ("CLOUDFLARE_BACKUP_API_TOKEN", settings.cloudflare_backup_api_token)
+    env_name, default_backup = {
+        "d3": ("D3_BACKUP_API_KEY", settings.d3_backup_api_key),
+        "cloudflare": ("CLOUDFLARE_BACKUP_API_TOKEN", settings.cloudflare_backup_api_token),
+        "gemini_decision": ("GEMINI_DECISION_BACKUP_API_KEY", settings.gemini_decision_backup_api_key),
+    }[provider]
     backup = os.getenv(env_name, default_backup or "").strip()
     keys = list(dict.fromkeys(candidate for candidate in (key, backup) if candidate))
     model = runtime.model or DECISION_MODELS[provider]
@@ -71,6 +76,9 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
     }
     if provider == "d3":
         payload["options"] = {"return_meta": True}
+    elif provider == "gemini_decision":
+        url = GEMINI_DECISION_API_URL
+        payload["input"] = payload.pop("state")
     global _next_request_at
     # One process-wide lane also bounds overlapping sessions/settings tests.
     # 429 responses still fail safely; this is not a promise of provider quota.
@@ -79,7 +87,12 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
             time.sleep(max(0.0, _next_request_at - time.monotonic()))
             _next_request_at = time.monotonic() + 1.0
             try:
-                response = _post_json(url, {"Authorization": f"Bearer {candidate}", "Content-Type": "application/json"}, payload, runtime.timeout_seconds)
+                headers = {"Content-Type": "application/json"}
+                if provider == "gemini_decision":
+                    headers["x-goog-api-key"] = candidate
+                else:
+                    headers["Authorization"] = f"Bearer {candidate}"
+                response = _post_json(url, headers, payload, runtime.timeout_seconds)
                 if provider == "cloudflare" and response.get("success") is not True:
                     raise AdjudicationUnavailable("Cloudflare Decision API reported failure")
                 break
@@ -94,6 +107,9 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
         if provider == "cloudflare":
             response = response["result"]
             provenance = f"@cf/cloudflare/{model}/{DECISION_POLICY_VERSION}"
+        elif provider == "gemini_decision":
+            # Google returns no immutable model revision; record only what is known.
+            provenance = f"{model}/{DECISION_POLICY_VERSION}"
         else:
             meta = response["meta"]
             revision = meta["revision"]
@@ -108,6 +124,10 @@ def adjudicate_decision_answer(item: AdjudicationItem, runtime: LlmRuntimeConfig
         answer = response["answers"]["grade"]
         probabilities = answer["probabilities"]
         choice = answer["choice"]
+        if provider == "gemini_decision":
+            confidence = answer["confidence"]
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+                raise ValueError("confidence")
         if answer["type"] != "choice" or answer.get("error") or choice not in _VERDICTS or set(probabilities) != set(_VERDICTS):
             raise ValueError("choice shape")
         if any(isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p) or not 0 <= p <= 1 for p in probabilities.values()):

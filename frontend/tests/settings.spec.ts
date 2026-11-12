@@ -27,6 +27,7 @@ const llmSettings = {
     { provider: 'openai_compatible', api_key_configured: false, api_key_source: 'none', effective_model: 'compatible/default', fallback_available: false },
     { provider: 'd3', api_key_configured: false, api_key_source: 'none', effective_model: 'vllm-sr/d3-turbo', fallback_available: false },
     { provider: 'cloudflare', api_key_configured: false, api_key_source: 'none', effective_model: 'clef', fallback_available: false },
+    { provider: 'gemini_decision', api_key_configured: false, api_key_source: 'none', effective_model: 'gemini-decision-1', fallback_available: false },
   ],
 };
 
@@ -142,6 +143,31 @@ test('D3 settings clear fallbacks and use one independent request per answer', a
   expect(payload?.batch_size).toBe(1);
   expect(payload?.max_concurrency).toBe(1);
   expect(payload?.clear_api_key).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('decision settings select Google without carrying another provider key', async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/llm-settings', async route => {
+    if (route.request().method() === 'PUT') payload = route.request().postDataJSON();
+    await route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const panel = page.locator('.home-llm-panel');
+  await panel.getByLabel('批改方式').selectOption('decision');
+  await panel.locator('details summary').click();
+  await panel.getByLabel('API Key', { exact: true }).fill('draft-other-key');
+  await panel.getByLabel('主要服務').selectOption('gemini_decision');
+  await expect(panel.getByLabel('API Key', { exact: true })).toHaveValue('');
+  await expect(panel.getByLabel('主要模型')).toHaveValue('gemini-decision-1');
+  await panel.getByLabel('API Key', { exact: true }).fill('google-test-key');
+  await panel.getByRole('button', { name: '儲存', exact: true }).click();
+  await expect.poll(() => payload).not.toBeNull();
+  expect(payload?.provider).toBe('gemini_decision');
+  expect(payload?.api_key).toBe('google-test-key');
+  expect(payload?.base_url).toBeNull();
+  expect(payload?.fallback_routes).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

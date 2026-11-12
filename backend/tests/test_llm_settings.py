@@ -2,6 +2,28 @@ import pytest
 from httpx import AsyncClient
 
 
+async def test_gemini_decision_settings_use_distinct_environment_key(client, monkeypatch):
+    monkeypatch.setenv("GEMINI_DECISION_API_KEY", "decision-only-secret")
+    await client.put("/api/v1/llm-settings", json={"provider": "gemini", "api_key": "legacy-secret"})
+    result = await client.put("/api/v1/llm-settings", json={"provider": "gemini_decision", "base_url": "https://unused.example"})
+    assert result.status_code == 200
+    body = result.json()
+    assert body["effective_model"] == "gemini-decision-1"
+    assert body["api_key_source"] == "environment"
+    assert body["base_url"] is None
+    assert body["fallback_routes"] == []
+    assert body["batch_size"] == body["max_concurrency"] == 1
+    assert "secret" not in result.text
+
+
+@pytest.mark.parametrize("payload", [
+    {"provider": "gemini_decision", "model": "gemini-2.5-flash"},
+    {"provider": "gemini_decision", "fallback_routes": [{"provider": "gemini", "model": "gemini-2.5-flash"}]},
+])
+async def test_gemini_decision_rejects_llm_model_or_fallback(client, payload):
+    assert (await client.put("/api/v1/llm-settings", json=payload)).status_code == 422
+
+
 def test_legacy_fallback_provider_list_is_converted_to_model_routes(monkeypatch):
     from types import SimpleNamespace
 
@@ -115,6 +137,13 @@ async def test_llm_settings_round_trip_does_not_return_secret(client: AsyncClien
             "api_key_configured": False,
             "api_key_source": "none",
             "effective_model": "clef",
+            "fallback_available": False,
+        },
+        {
+            "provider": "gemini_decision",
+            "api_key_configured": False,
+            "api_key_source": "none",
+            "effective_model": "gemini-decision-1",
             "fallback_available": False,
         },
     ]

@@ -8,7 +8,7 @@ DEFAULT_MINIMUM_DUE_COUNT = 10
 DEFAULT_LLM_BATCH_SIZE = 10
 DEFAULT_LLM_MAX_CONCURRENCY = 2
 DEFAULT_D3_MODEL = "vllm-sr/d3-turbo"
-DECISION_MODELS = {"d3": DEFAULT_D3_MODEL, "cloudflare": "clef"}
+DECISION_MODELS = {"d3": DEFAULT_D3_MODEL, "cloudflare": "clef", "gemini_decision": "gemini-decision-1"}
 # The provider now serves this legacy selector through d3-ultra.
 D3_SERVED_MODELS = {DEFAULT_D3_MODEL: {DEFAULT_D3_MODEL, "vllm-sr/d3-ultra"}}
 # Text correctness cannot establish the effort required for an FSRS Hard recall.

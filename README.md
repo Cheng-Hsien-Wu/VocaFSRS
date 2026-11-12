@@ -70,7 +70,7 @@ At the vocabulary import prompt, enter either an absolute path or a path relativ
 
 The host address, timezone, vocabulary file, and reminder settings can be changed later. Formal review grading requires an API key. The installer accepts a D3 key first; leaving it blank offers the existing LLM providers. Local environment settings are stored in `backend/.env`; do not share that file. Restart the server after changing it. Settings saved in the web interface take precedence over environment defaults.
 
-In homepage grading settings, select **Decision Model** or **LLM**, then choose the service and model. Decision models currently support **vLLM-SR / D3-turbo** and **Cloudflare Workers AI / CLEF**, sharing the same semantic grading rules. They process one term per request and never fall back to an LLM or another model. Enter the API key under connection settings, then save/test. Cloudflare also requires a 32-character Account ID.
+In homepage grading settings, select **Decision Model** or **LLM**, then choose the service and model. Decision models support **Google / Gemini Decision 1**, **vLLM-SR / D3-turbo**, and **Cloudflare Workers AI / CLEF**, sharing the same semantic grading rules. They process one term per request and never fall back to an LLM or another model. Enter the API key under connection settings, then save/test. Cloudflare also requires a 32-character Account ID.
 
 The D3 provider currently serves the `d3-turbo` selector through `d3-ultra`, as documented in its [model list](https://decision.vllm-sr.ai/docs#models). This is a provider-side alias, not our fallback mechanism. Grading records store the actual returned model and revision; unrelated models and inconsistent metadata are rejected.
 
@@ -79,7 +79,10 @@ Environment-based installations can configure one of these providers in `backend
 | Provider | Settings | Optional Backup Key |
 | --- | --- | --- |
 | vLLM-SR | `LLM_PROVIDER=d3`, `D3_API_KEY` | `D3_BACKUP_API_KEY` |
+| Google Gemini Decision | `LLM_PROVIDER=gemini_decision`, `GEMINI_DECISION_API_KEY` | `GEMINI_DECISION_BACKUP_API_KEY` |
 | Cloudflare | `LLM_PROVIDER=cloudflare`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_BACKUP_API_TOKEN` |
+
+Gemini Decision uses Google's native Decisions API with `gemini-decision-1` and the shared English grading rubric, not the Gemini LLM endpoint. Select Google Gemini Decision under Decision Model in settings. Responses contain no immutable model revision, so records identify the requested model and local policy version only. API failures remain retryable; they never become incorrect answers or silently switch services. Google's Free Tier depends on the project's billing tier, not a request flag; verify the project remains on Free before use. Free-tier inputs may be used to improve Google products; see [Google's terms](https://ai.google.dev/gemini-api/terms).
 
 Backup keys are configured only in `.env`. If the primary request fails, the backend tries the backup once with the same model and grading instructions. Invalid grading responses are rejected, not retried with another key. Restart after changing environment settings. Each service receives the term, reference meaning, part of speech, and typed answer. Review its data policy before use: [vLLM-SR](https://decision.vllm-sr.ai/privacy) or [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/platform/data-usage/). CLEF does not return the same revision metadata as D3, so its stored provenance identifies the model and our grading-policy version, not an immutable provider revision.
 

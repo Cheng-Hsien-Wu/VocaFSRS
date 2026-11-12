@@ -14,6 +14,7 @@ const MAX_FALLBACK_ROUTES = 5;
 const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
   { value: 'd3', label: 'vLLM-SR' },
   { value: 'cloudflare', label: 'Cloudflare Workers AI' },
+  { value: 'gemini_decision', label: 'Google Gemini Decision' },
   { value: 'auto', label: '自動選擇' },
   { value: 'gemini', label: 'Gemini Native' },
   { value: 'openai_compatible', label: 'OpenAI-compatible' },
@@ -21,7 +22,7 @@ const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
 ];
 
 function isDecisionProvider(provider: LlmProvider) {
-  return provider === 'd3' || provider === 'cloudflare';
+  return provider === 'd3' || provider === 'cloudflare' || provider === 'gemini_decision';
 }
 
 interface LlmSettingsDraft {
